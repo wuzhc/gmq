@@ -28,7 +28,7 @@ func init() {
 type Dispatcher struct {
 	conf        *ini.File
 	addToBucket chan *JobCard
-	bucket      []*bucket
+	bucket      []*Bucket
 	running     int
 	closeChan   chan struct{}
 }
@@ -75,16 +75,16 @@ func (d *Dispatcher) initBucket() error {
 		return ErrBucketNum
 	}
 	for i := 0; i < n; i++ {
-		b := &bucket{
-			id:              strconv.Itoa(i),
-			jobNum:          0,
+		b := &Bucket{
+			Id:              strconv.Itoa(i),
+			JobNum:          0,
 			recvJob:         make(chan *JobCard),
 			addToReadyQueue: make(chan string),
 			resetTimerChan:  make(chan struct{}),
 		}
 
 		// 初始化job数量,可能上次执行到一半就终止了
-		b.jobNum = db.GetBucketJobNum(b)
+		b.JobNum = db.GetBucketJobNum(b)
 		go b.run()
 		d.bucket = append(d.bucket, b)
 	}
@@ -107,11 +107,6 @@ func (d *Dispatcher) AddToJobPool(j *Job) error {
 	return nil
 }
 
-func (d *Dispatcher) GetBuckets() []string {
-	var res []string
-	for _, v := range d.bucket {
-		temp := v.id + "---" + v.nextTime.Format("2006-01-02 15:04:05") + "\n"
-		res = append(res, temp)
-	}
-	return res
+func (d *Dispatcher) GetBuckets() []*Bucket {
+	return d.bucket
 }

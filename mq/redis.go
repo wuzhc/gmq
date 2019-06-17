@@ -79,7 +79,7 @@ func (db *gredis) AddToJobPool(j *Job) error {
 
 // 添加到bucket
 // 有序集合score = 延迟秒数 + 当前时间戳
-func (db *gredis) AddToBucket(b *bucket, card *JobCard) error {
+func (db *gredis) AddToBucket(b *Bucket, card *JobCard) error {
 	conn := db.pool.Get()
 	defer conn.Close()
 
@@ -148,11 +148,13 @@ func (db *gredis) GetJobStatus(jobId string) (int, error) {
 	return redis.Int(conn.Do("HGET", key, "status"))
 }
 
+// ----------- bucket -------------
+
 // 从指定bucket检索到期的job
 // nextTime
 // 	-1 当前bucket已经没有jobs
 //  >0 当前bucket下个job到期时间
-func (db *gredis) RetrivalTimeoutJobs(b *bucket) (jobIds []string, nextTime int, err error) {
+func (db *gredis) RetrivalTimeoutJobs(b *Bucket) (jobIds []string, nextTime int, err error) {
 	conn := db.pool.Get()
 	defer conn.Close()
 
@@ -204,10 +206,12 @@ func (db *gredis) RetrivalTimeoutJobs(b *bucket) (jobIds []string, nextTime int,
 }
 
 // 获取bucket中job数量
-func (db *gredis) GetBucketJobNum(b *bucket) int {
+func (db *gredis) GetBucketJobNum(b *Bucket) int {
 	conn := db.pool.Get()
 	defer conn.Close()
 
 	n, _ := redis.Int(conn.Do("ZCARD", b.Key()))
 	return n
 }
+
+// ------------end bucket-------

@@ -14,27 +14,31 @@ var (
 	timerSleepDuration   = 24 * time.Hour
 )
 
-type bucket struct {
+type Bucket struct {
 	sync.Mutex
-	id              string
-	jobNum          int
-	nextTime        time.Time
+	Id              string
+	JobNum          int
+	NextTime        time.Time
 	recvJob         chan *JobCard
 	addToReadyQueue chan string
 	resetTimerChan  chan struct{}
 }
 
-type ByNum []*bucket
+type ByNum []*Bucket
+type ById []*Bucket
 
-func (a ByNum) Len() int           { return len(a) }
-func (a ByNum) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a ByNum) Less(i, j int) bool { return a[i].jobNum < a[j].jobNum }
+func (b ByNum) Len() int           { return len(b) }
+func (b ByNum) Swap(i, j int)      { b[i], b[j] = b[j], b[i] }
+func (b ByNum) Less(i, j int) bool { return b[i].JobNum < b[j].JobNum }
+func (b ById) Len() int            { return len(b) }
+func (b ById) Swap(i, j int)       { b[i], b[j] = b[j], b[i] }
+func (b ById) Less(i, j int) bool  { return b[i].Id < b[j].Id }
 
-func (b *bucket) Key() string {
-	return GetBucketKeyById(b.id)
+func (b *Bucket) Key() string {
+	return GetBucketKeyById(b.Id)
 }
 
-func (b *bucket) run() {
+func (b *Bucket) run() {
 	go b.retrievalTimeoutJobs()
 
 	for {
@@ -51,14 +55,14 @@ func (b *bucket) run() {
 
 			// 如果bucket下次扫描检索时间比新job的delay相差5秒以上,则重置定时器,
 			// 确保新的job能够即时添加到readyQueue,设置5秒间隔可以防止频繁重置定时器
-			subTime := b.nextTime.Sub(time.Now())
+			subTime := b.NextTime.Sub(time.Now())
 			if subTime > 0 && subTime-time.Duration(card.delay) > timerResetDuration {
-				log.Debug(logs.LogCategory("resetTimer"), fmt.Sprintf("bid:%v,resettime", b.id))
+				log.Debug(logs.LogCategory("resetTimer"), fmt.Sprintf("bid:%v,resettime", b.Id))
 				b.resetTimerChan <- struct{}{}
 			}
 
 			db.SetJobStatus(card.id, JOB_STATUS_DELAY)
-			b.jobNum++
+			b.JobNum++
 			b.Unlock()
 		case jobId := <-b.addToReadyQueue:
 			if err := db.AddToReadyQueue(jobId); err != nil {
@@ -68,13 +72,13 @@ func (b *bucket) run() {
 			}
 
 			db.SetJobStatus(jobId, JOB_STATUS_READY)
-			b.jobNum--
+			b.JobNum--
 		}
 	}
 }
 
 // 检索到时任务
-func (b *bucket) retrievalTimeoutJobs() {
+func (b *Bucket) retrievalTimeoutJobs() {
 	var (
 		duration = timerDefaultDuration
 		timer    = time.NewTimer(duration)
@@ -102,8 +106,8 @@ func (b *bucket) retrievalTimeoutJobs() {
 				duration = time.Duration(nextTime) * time.Second
 			}
 
-			b.nextTime = time.Now().Add(duration)
-			logInfo := fmt.Sprintf("%v,nexttime:%v", b.Key(), utils.FormatTime(b.nextTime))
+			b.NextTime = time.Now().Add(duration)
+			logInfo := fmt.Sprintf("%v,nexttime:%v", b.Key(), utils.FormatTime(b.NextTime))
 			log.Info(logs.LogCategory("retrivaltime"), logInfo)
 
 			timer.Reset(duration)
@@ -115,7 +119,7 @@ func (b *bucket) retrievalTimeoutJobs() {
 				}
 			}
 
-			b.nextTime = time.Now().Add(timerDefaultDuration)
+			b.NextTime = time.Now().Add(timerDefaultDuration)
 			timer.Reset(timerDefaultDuration)
 		}
 	}
