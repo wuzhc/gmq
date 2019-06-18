@@ -8,7 +8,7 @@ import (
 	"github.com/gomodule/redigo/redis"
 )
 
-var db *gredis
+var redisPool *redis.Pool
 
 const (
 	JOB_POOL_KEY    = "job_pool"
@@ -29,8 +29,7 @@ func GetBucketKeyById(id string) string {
 }
 
 func init() {
-	db = &gredis{}
-	db.pool = &redis.Pool{
+	redisPool = &redis.Pool{
 		MaxIdle:     30,
 		MaxActive:   3000,
 		IdleTimeout: 240 * time.Second,
@@ -50,12 +49,11 @@ func init() {
 			return err
 		},
 	}
-	db.addr = "127.0.0.1:6379"
 }
 
 // 添加到任务池
-func (db *gredis) AddToJobPool(j *Job) error {
-	conn := db.pool.Get()
+func AddToJobPool(j *Job) error {
+	conn := redisPool.Get()
 	defer func() {
 		conn.Close()
 	}()
@@ -74,8 +72,8 @@ func (db *gredis) AddToJobPool(j *Job) error {
 
 // 添加到bucket
 // 有序集合score = 延迟秒数 + 当前时间戳
-func (db *gredis) AddToBucket(b *Bucket, card *JobCard) error {
-	conn := db.pool.Get()
+func AddToBucket(b *Bucket, card *JobCard) error {
+	conn := redisPool.Get()
 	defer conn.Close()
 
 	score := int64(card.delay) + time.Now().Unix()
@@ -84,13 +82,13 @@ func (db *gredis) AddToBucket(b *Bucket, card *JobCard) error {
 }
 
 // 移除bucket
-func (db *gredis) RemoveFromBucket() error {
+func RemoveFromBucket() error {
 	return nil
 }
 
 // 添加到准备队列
-func (db *gredis) AddToReadyQueue(jobId string) error {
-	conn := db.pool.Get()
+func AddToReadyQueue(jobId string) error {
+	conn := redisPool.Get()
 	defer conn.Close()
 
 	key := GetJobKeyById(jobId)
@@ -117,8 +115,8 @@ func (db *gredis) AddToReadyQueue(jobId string) error {
 }
 
 // 根据jobId获取topic
-func (db *gredis) GetTopicByJobId(jobId string) (string, error) {
-	conn := db.pool.Get()
+func GetTopicByJobId(jobId string) (string, error) {
+	conn := redisPool.Get()
 	defer conn.Close()
 
 	key := GetJobKeyById(jobId)
@@ -126,8 +124,8 @@ func (db *gredis) GetTopicByJobId(jobId string) (string, error) {
 }
 
 // 设置任务状态
-func (db *gredis) SetJobStatus(jobId string, status int) error {
-	conn := db.pool.Get()
+func SetJobStatus(jobId string, status int) error {
+	conn := redisPool.Get()
 	defer conn.Close()
 
 	key := GetJobKeyById(jobId)
@@ -135,8 +133,8 @@ func (db *gredis) SetJobStatus(jobId string, status int) error {
 	return err
 }
 
-func (db *gredis) GetJobStatus(jobId string) (int, error) {
-	conn := db.pool.Get()
+func GetJobStatus(jobId string) (int, error) {
+	conn := redisPool.Get()
 	defer conn.Close()
 
 	key := GetJobKeyById(jobId)
@@ -147,8 +145,8 @@ func (db *gredis) GetJobStatus(jobId string) (int, error) {
 // nextTime
 // 	-1 当前bucket已经没有jobs
 //  >0 当前bucket下个job到期时间
-func (db *gredis) RetrivalTimeoutJobs(b *Bucket) (jobIds []string, nextTime int, err error) {
-	conn := db.pool.Get()
+func RetrivalTimeoutJobs(b *Bucket) (jobIds []string, nextTime int, err error) {
+	conn := redisPool.Get()
 	defer conn.Close()
 
 	jobIds = nil
@@ -168,7 +166,7 @@ func (db *gredis) RetrivalTimeoutJobs(b *Bucket) (jobIds []string, nextTime int,
 			continue
 		}
 		// 跳过没有准备好的job
-		if status, err := db.GetJobStatus(r); err != nil || status != JOB_STATUS_DELAY {
+		if status, err := GetJobStatus(r); err != nil || status != JOB_STATUS_DELAY {
 			continue
 		}
 		// 被检索后,记得删除bucket中的jobs,这里不根据score范围批量删除,是考虑到如果删除过程中,
@@ -199,8 +197,8 @@ func (db *gredis) RetrivalTimeoutJobs(b *Bucket) (jobIds []string, nextTime int,
 }
 
 // 获取bucket中job数量
-func (db *gredis) GetBucketJobNum(b *Bucket) int {
-	conn := db.pool.Get()
+func GetBucketJobNum(b *Bucket) int {
+	conn := redisPool.Get()
 	defer conn.Close()
 
 	n, _ := redis.Int(conn.Do("ZCARD", b.Key()))

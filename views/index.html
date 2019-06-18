@@ -68,14 +68,16 @@
         $.ajax({
           url:"http://127.0.0.1:8000/getQueueInfo",
           dataType:"json",
-          success:function(data){
+          success:function(res){
             // 指定图表的配置项和数据
             var name = []
             var value = []
-            $.each(data,function(k,v){
-              name.push(v.name)
-              value.push(v.num)
-            })
+            if (res.data) {
+              $.each(res.data,function(k,v){
+                name.push(v.queue_name)
+                value.push(v.job_num)
+              })  
+            }
             
             var option = {
                 title: {

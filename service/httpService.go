@@ -15,6 +15,25 @@ type httpService struct {
 	dispatcher *mq.Dispatcher
 }
 
+type Resp struct {
+	Data string `json:"data"`
+	Msg  string `json:"msg"`
+	Code int    `json:"code"`
+}
+
+func RespData(data interface{}, w http.ResponseWriter) {
+	var resp = make(map[string]interface{})
+	resp["data"] = data
+	resp["code"] = 0
+	resp["msg"] = "success"
+	nbyte, err := json.Marshal(resp)
+	if err != nil {
+		fmt.Fprintln(w, err)
+	} else {
+		fmt.Fprintln(w, string(nbyte))
+	}
+}
+
 func (h *httpService) Index(w http.ResponseWriter, r *http.Request) {
 	t, _ := template.ParseFiles("views/index.html")
 	fmt.Println(t.Name())
@@ -187,12 +206,12 @@ func (h *httpService) GetBucketInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *httpService) GetQueueInfo(w http.ResponseWriter, r *http.Request) {
-	res := mq.GetReadyQueueInfo()
-	resp, err := json.Marshal(res)
+	res, _ := mq.GetReadyQueueStat()
+	_, err := json.Marshal(res)
 	if err != nil {
 		fmt.Fprintln(w, err)
 	} else {
-		fmt.Fprintf(w, string(resp))
+		RespData(res, w)
 	}
 }
 

@@ -84,7 +84,7 @@ func (d *Dispatcher) initBucket() error {
 		}
 
 		// 初始化job数量,可能上次执行到一半就终止了
-		b.JobNum = db.GetBucketJobNum(b)
+		b.JobNum = GetBucketJobNum(b)
 		go b.run()
 		d.bucket = append(d.bucket, b)
 	}
@@ -99,7 +99,7 @@ func (d *Dispatcher) AddToJobPool(j *Job) error {
 	if err := j.CheckJobData(); err != nil {
 		return err
 	}
-	if err := db.AddToJobPool(j); err != nil {
+	if err := AddToJobPool(j); err != nil {
 		return err
 	}
 

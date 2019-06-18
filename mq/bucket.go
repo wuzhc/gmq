@@ -45,7 +45,7 @@ func (b *Bucket) run() {
 		select {
 		case card := <-b.recvJob:
 			b.Lock()
-			if err := db.AddToBucket(b, card); err != nil {
+			if err := AddToBucket(b, card); err != nil {
 				// job添加到bucket失败了,要怎么处理???
 				fmt.Println("添加bucket失败", err)
 				log.Error(fmt.Sprintf("Add to bucket failed, the error is %v", err))
@@ -61,17 +61,17 @@ func (b *Bucket) run() {
 				b.resetTimerChan <- struct{}{}
 			}
 
-			db.SetJobStatus(card.id, JOB_STATUS_DELAY)
+			SetJobStatus(card.id, JOB_STATUS_DELAY)
 			b.JobNum++
 			b.Unlock()
 		case jobId := <-b.addToReadyQueue:
-			if err := db.AddToReadyQueue(jobId); err != nil {
+			if err := AddToReadyQueue(jobId); err != nil {
 				// 添加ready queue失败了,要怎么处理
 				log.Error(err)
 				continue
 			}
 
-			db.SetJobStatus(jobId, JOB_STATUS_READY)
+			SetJobStatus(jobId, JOB_STATUS_READY)
 			b.JobNum--
 		}
 	}
@@ -87,7 +87,7 @@ func (b *Bucket) retrievalTimeoutJobs() {
 	for {
 		select {
 		case <-timer.C:
-			jobIds, nextTime, err := db.RetrivalTimeoutJobs(b)
+			jobIds, nextTime, err := RetrivalTimeoutJobs(b)
 			if err != nil {
 				log.Error(fmt.Sprintf("bucketId: %v retrival failed, error:%v", b.Key(), err))
 				timer.Reset(duration)
