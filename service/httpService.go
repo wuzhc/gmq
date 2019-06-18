@@ -11,14 +11,12 @@ import (
 	"strconv"
 )
 
+var (
+	ErrJosnMarshal = `{"code":1,"msg":"json marshal failed","data":null}`
+)
+
 type httpService struct {
 	dispatcher *mq.Dispatcher
-}
-
-type Resp struct {
-	Data string `json:"data"`
-	Msg  string `json:"msg"`
-	Code int    `json:"code"`
 }
 
 func RespData(data interface{}, w http.ResponseWriter) {
@@ -27,8 +25,37 @@ func RespData(data interface{}, w http.ResponseWriter) {
 	resp["code"] = 0
 	resp["msg"] = "success"
 	nbyte, err := json.Marshal(resp)
+
 	if err != nil {
-		fmt.Fprintln(w, err)
+		fmt.Fprintln(w, ErrJosnMarshal)
+	} else {
+		fmt.Fprintln(w, string(nbyte))
+	}
+}
+
+func RespErr(msg string, w http.ResponseWriter) {
+	var resp = make(map[string]interface{})
+	resp["data"] = nil
+	resp["code"] = 1
+	resp["msg"] = msg
+	nbyte, err := json.Marshal(resp)
+
+	if err == nil {
+		fmt.Fprintln(w, ErrJosnMarshal)
+	} else {
+		fmt.Fprintln(w, string(nbyte))
+	}
+}
+
+func RespSuccess(msg string, w http.ResponseWriter) {
+	var resp = make(map[string]interface{})
+	resp["data"] = nil
+	resp["code"] = 0
+	resp["msg"] = msg
+	nbyte, err := json.Marshal(resp)
+
+	if err == nil {
+		fmt.Fprintln(w, ErrJosnMarshal)
 	} else {
 		fmt.Fprintln(w, string(nbyte))
 	}
@@ -205,11 +232,11 @@ func (h *httpService) GetBucketInfo(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *httpService) GetQueueInfo(w http.ResponseWriter, r *http.Request) {
-	res, _ := mq.GetReadyQueueStat()
-	_, err := json.Marshal(res)
+// 获取readyQueue统计信息
+func (h *httpService) GetReadyQueueStat(w http.ResponseWriter, r *http.Request) {
+	res, err := mq.GetReadyQueueStat()
 	if err != nil {
-		fmt.Fprintln(w, err)
+		RespErr(err.Error(), w)
 	} else {
 		RespData(res, w)
 	}
@@ -223,6 +250,6 @@ func (h *httpService) Run() {
 	http.HandleFunc("/add", h.AddHandler)
 	http.HandleFunc("/show", h.ShowHandler)
 	http.HandleFunc("/getBucketInfo", h.GetBucketInfo)
-	http.HandleFunc("/getQueueInfo", h.GetQueueInfo)
+	http.HandleFunc("/getReadyQueueStat", h.GetReadyQueueStat)
 	http.ListenAndServe("127.0.0.1:8000", nil)
 }
