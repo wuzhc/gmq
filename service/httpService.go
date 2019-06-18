@@ -64,11 +64,83 @@ func (h *httpService) AddHandler(w http.ResponseWriter, r *http.Request) {
 
 	for n := 0; n <= 1000; n++ {
 		v = strconv.Itoa(n) + k + "dasai"
-		t = 0
+		t = n * 4
 
 		job := &mq.Job{
 			Id:    v,
 			Topic: "dasai",
+			Delay: t,
+			TTR:   30,
+			Body:  "this is a test by wuzhc",
+		}
+		if err := h.dispatcher.AddToJobPool(job); err != nil {
+			fmt.Fprintln(w, err)
+		} else {
+			fmt.Fprintln(w, "add success")
+		}
+	}
+
+	for n := 0; n <= 10000; n++ {
+		v = strconv.Itoa(n) + k + "kouzi"
+		t = n * 2
+
+		job := &mq.Job{
+			Id:    v,
+			Topic: "kouzi",
+			Delay: t,
+			TTR:   30,
+			Body:  "this is a test by wuzhc",
+		}
+		if err := h.dispatcher.AddToJobPool(job); err != nil {
+			fmt.Fprintln(w, err)
+		} else {
+			fmt.Fprintln(w, "add success")
+		}
+	}
+
+	for n := 0; n <= 100000; n++ {
+		v = strconv.Itoa(n) + k + "ceping"
+		t = n * 2
+
+		job := &mq.Job{
+			Id:    v,
+			Topic: "ceping",
+			Delay: t,
+			TTR:   30,
+			Body:  "this is a test by wuzhc",
+		}
+		if err := h.dispatcher.AddToJobPool(job); err != nil {
+			fmt.Fprintln(w, err)
+		} else {
+			fmt.Fprintln(w, "add success")
+		}
+	}
+
+	for n := 0; n <= 100; n++ {
+		v = strconv.Itoa(n) + k + "kepu"
+		t = n * 2
+
+		job := &mq.Job{
+			Id:    v,
+			Topic: "kepu",
+			Delay: t,
+			TTR:   30,
+			Body:  "this is a test by wuzhc",
+		}
+		if err := h.dispatcher.AddToJobPool(job); err != nil {
+			fmt.Fprintln(w, err)
+		} else {
+			fmt.Fprintln(w, "add success")
+		}
+	}
+
+	for n := 0; n <= 300000; n++ {
+		v = strconv.Itoa(n) + k + "renrentong"
+		t = n
+
+		job := &mq.Job{
+			Id:    v,
+			Topic: "renrentong",
 			Delay: t,
 			TTR:   30,
 			Body:  "this is a test by wuzhc",
@@ -114,6 +186,16 @@ func (h *httpService) GetBucketInfo(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *httpService) GetQueueInfo(w http.ResponseWriter, r *http.Request) {
+	res := mq.GetReadyQueueInfo()
+	resp, err := json.Marshal(res)
+	if err != nil {
+		fmt.Fprintln(w, err)
+	} else {
+		fmt.Fprintf(w, string(resp))
+	}
+}
+
 func (h *httpService) Run() {
 	fmt.Println("begin http servie")
 	http.Handle("/static/", http.FileServer(http.Dir("static"))) // 启动静态文件服务
@@ -122,5 +204,6 @@ func (h *httpService) Run() {
 	http.HandleFunc("/add", h.AddHandler)
 	http.HandleFunc("/show", h.ShowHandler)
 	http.HandleFunc("/getBucketInfo", h.GetBucketInfo)
+	http.HandleFunc("/getQueueInfo", h.GetQueueInfo)
 	http.ListenAndServe("127.0.0.1:8000", nil)
 }

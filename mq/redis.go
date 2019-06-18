@@ -8,11 +8,6 @@ import (
 	"github.com/gomodule/redigo/redis"
 )
 
-type gredis struct {
-	addr string
-	pool *redis.Pool
-}
-
 var db *gredis
 
 const (
@@ -148,8 +143,6 @@ func (db *gredis) GetJobStatus(jobId string) (int, error) {
 	return redis.Int(conn.Do("HGET", key, "status"))
 }
 
-// ----------- bucket -------------
-
 // 从指定bucket检索到期的job
 // nextTime
 // 	-1 当前bucket已经没有jobs
@@ -213,5 +206,3 @@ func (db *gredis) GetBucketJobNum(b *Bucket) int {
 	n, _ := redis.Int(conn.Do("ZCARD", b.Key()))
 	return n
 }
-
-// ------------end bucket-------
