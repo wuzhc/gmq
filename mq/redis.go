@@ -123,6 +123,15 @@ func GetTopicByJobId(jobId string) (string, error) {
 	return redis.String(conn.Do("HGET", key, "topic"))
 }
 
+// 根据id获取job详情
+func GetJobDetailById(jobId string) (map[string]string, error) {
+	conn := redisPool.Get()
+	defer conn.Close()
+
+	key := GetJobKeyById(jobId)
+	return redis.StringMap(conn.Do("HGETALL", key))
+}
+
 // 设置任务状态
 func SetJobStatus(jobId string, status int) error {
 	conn := redisPool.Get()

@@ -11,16 +11,11 @@ import (
 )
 
 var (
+	dispatcher        *Dispatcher
 	log               *logs.Dispatcher
 	ErrBucketNum      = errors.New("The number of buckets must be greater then 0")
 	ErrDispacherNoRun = errors.New("Dispacher is not running")
 )
-
-func init() {
-	log = logs.NewDispatcher()
-	log.SetTarget(logs.TARGET_FILE, `{"filename":"xxx.log","level":2,"max_size":50000000,"rotate":true}`)
-	log.SetTarget(logs.TARGET_CONSOLE, "")
-}
 
 // 添加Job到Job Pool
 // 调度Job分配到bucket
@@ -39,11 +34,18 @@ func NewDispatcher() *Dispatcher {
 	// panic("Road config.ini failed, " + err.Error())
 	// }
 
-	return &Dispatcher{
+	dispatcher = &Dispatcher{
 		running:     0,
 		addToBucket: make(chan *JobCard),
 		closeChan:   make(chan struct{}),
 	}
+	return dispatcher
+}
+
+func init() {
+	log = logs.NewDispatcher()
+	log.SetTarget(logs.TARGET_FILE, `{"filename":"xxx.log","level":2,"max_size":50000000,"rotate":true}`)
+	log.SetTarget(logs.TARGET_CONSOLE, "")
 }
 
 // 执行调度器
