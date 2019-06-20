@@ -26,6 +26,7 @@ func RunWebMonitor() {
 	r.GET("/getReadyQueueStat", getReadyQueueStat)
 	r.GET("/getBucketStat", getBucketStat)
 	r.GET("/getJobsByBucketKey", getJobsByBucketKey)
+	r.GET("/jobDetail", jobDetail)
 	r.Run(":8000")
 }
 
@@ -79,6 +80,42 @@ func readyQueueList(c *gin.Context) {
 	})
 }
 
+// 任务job详情
+func jobDetail(c *gin.Context) {
+	jobId := c.Query("jobId")
+	if len(jobId) == 0 {
+		c.String(http.StatusBadGateway, "jobId参数错误")
+		return
+	}
+	detail, err := GetJobDetailById(jobId)
+	if err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	detail["delay"] = utils.SecToTimeString(detail["delay"])
+	detail["job_key"] = GetJobKeyById(detail["id"])
+	c.HTML(http.StatusOK, "job_detail.html", gin.H{
+		"title":  "job详情",
+		"detail": detail,
+	})
+}
+
+// 根据jobId获取job详情
+func getJobDetailById(c *gin.Context) {
+	jobId := c.Query("jobId")
+	if len(jobId) == 0 {
+		c.JSON(http.StatusBadRequest, rspErr("jobId参数错误"))
+		return
+	}
+	detail, err := GetJobDetailById(jobId)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, rspErr(err))
+		return
+	}
+	c.JSON(http.StatusOK, detail)
+}
+
 // 根据bucketKey获取bucket任务列表
 func getJobsByBucketKey(c *gin.Context) {
 	n := c.DefaultQuery("limit", "20")
@@ -92,19 +129,19 @@ func getJobsByBucketKey(c *gin.Context) {
 	defer conn.Close()
 
 	type jobInfo struct {
-		Id        int    `json:"id"`
-		JobName   string `json:"job_name"`
+		Id        string `json:"id"`
+		JobKey    string `json:"job_key"`
 		RunTime   string `json:"runtime"`
 		TTR       string `json:"ttr"`
 		DelayTime string `json:"delay_time"`
 		Topic     string `json:"topic"`
-		Body      string `json:"body"`
 		Status    string `json:"status"`
 	}
 	var res []jobInfo
 	records, err := redis.Strings(conn.Do("ZRANGE", k, 0, n, "WITHSCORES"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, rspErr(err))
+		return
 	}
 
 	var name, time []string
@@ -119,13 +156,12 @@ func getJobsByBucketKey(c *gin.Context) {
 	for j, id := range name {
 		detail, _ := GetJobDetailById(id)
 		res = append(res, jobInfo{
-			Id:        j + 1,
+			Id:        id,
 			TTR:       detail["TTR"],
 			DelayTime: utils.SecToTimeString(detail["delay"]),
 			Topic:     detail["topic"],
-			Body:      detail["body"],
 			Status:    getStatusName(detail["status"]),
-			JobName:   GetJobKeyById(id),
+			JobKey:    GetJobKeyById(id),
 			RunTime:   utils.UnixToFormatTime(time[j]),
 		})
 	}
