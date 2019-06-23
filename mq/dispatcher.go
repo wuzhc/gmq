@@ -5,14 +5,11 @@ import (
 	"sort"
 	"strconv"
 
-	"goer/logs"
-
 	"gopkg.in/ini.v1"
 )
 
 var (
-	dispatcher        *Dispatcher
-	log               *logs.Dispatcher
+	Dper              *Dispatcher
 	ErrBucketNum      = errors.New("The number of buckets must be greater then 0")
 	ErrDispacherNoRun = errors.New("Dispacher is not running")
 )
@@ -24,48 +21,46 @@ type Dispatcher struct {
 	conf        *ini.File
 	addToBucket chan *JobCard
 	bucket      []*Bucket
-	running     int
-	closeChan   chan struct{}
-}
-
-func NewDispatcher() *Dispatcher {
-	// cfg, err := ini.Load("conf.ini")
-	// if err != nil {
-	// panic("Road config.ini failed, " + err.Error())
-	// }
-
-	dispatcher = &Dispatcher{
-		running:     0,
-		addToBucket: make(chan *JobCard),
-		closeChan:   make(chan struct{}),
-	}
-	return dispatcher
 }
 
 func init() {
-	log = logs.NewDispatcher()
-	log.SetTarget(logs.TARGET_FILE, `{"filename":"xxx.log","level":2,"max_size":50000000,"rotate":true}`)
-	log.SetTarget(logs.TARGET_CONSOLE, "")
+	Dper = &Dispatcher{
+		addToBucket: make(chan *JobCard),
+	}
 }
 
-// 执行调度器
+// job调度器,负责bucket分配
 func (d *Dispatcher) Run() {
-	if d.running == 1 {
+	defer gmq.wg.Done()
+	defer func() {
+		log.Error("dispatcher退出了")
+	}()
+	gmq.wg.Add(1)
+
+	if gmq.running == 0 {
 		return
 	}
 	if err := d.initBucket(); err != nil {
 		panic(err)
 	}
 
-	d.running = 1
 	for {
 		select {
 		case card := <-d.addToBucket:
-			// 分配到数量少的bucket
-			sort.Sort(ByNum(d.bucket))
-			d.bucket[0].recvJob <- card
-		case <-d.closeChan:
-			d.running = 0
+			if card.delay > 0 {
+				sort.Sort(ByNum(d.bucket))
+				d.bucket[0].recvJob <- card
+			} else {
+				// 延迟时间<=0,直接添加到队列(作为普通队列使用)
+				if err := AddToReadyQueue(card.id); err != nil {
+					// 添加ready queue失败了,要怎么处理
+					log.Error(err)
+				} else {
+					SetJobStatus(card.id, JOB_STATUS_READY)
+				}
+			}
+		case <-gmq.notify:
+			return
 		}
 	}
 }
@@ -95,9 +90,6 @@ func (d *Dispatcher) initBucket() error {
 
 // 添加任务到对象池
 func (d *Dispatcher) AddToJobPool(j *Job) error {
-	if d.running == 0 {
-		return ErrDispacherNoRun
-	}
 	if err := j.CheckJobData(); err != nil {
 		return err
 	}

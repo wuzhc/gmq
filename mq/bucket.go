@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"go-mq/logs"
 	"go-mq/utils"
+	"strconv"
 	"sync"
 	"time"
+
+	"github.com/gomodule/redigo/redis"
 )
 
 var (
@@ -39,6 +42,12 @@ func (b *Bucket) Key() string {
 }
 
 func (b *Bucket) run() {
+	defer gmq.wg.Done()
+	defer func() {
+		log.Error("bucket", b.Key(), "run退出了")
+	}()
+	gmq.wg.Add(1)
+
 	go b.retrievalTimeoutJobs()
 
 	for {
@@ -47,7 +56,6 @@ func (b *Bucket) run() {
 			b.Lock()
 			if err := AddToBucket(b, card); err != nil {
 				// job添加到bucket失败了,要怎么处理???
-				fmt.Println("添加bucket失败", err)
 				log.Error(fmt.Sprintf("Add to bucket failed, the error is %v", err))
 				b.Unlock()
 				continue
@@ -61,7 +69,6 @@ func (b *Bucket) run() {
 				b.resetTimerChan <- struct{}{}
 			}
 
-			SetJobStatus(card.id, JOB_STATUS_DELAY)
 			b.JobNum++
 			b.Unlock()
 		case jobId := <-b.addToReadyQueue:
@@ -73,12 +80,20 @@ func (b *Bucket) run() {
 
 			SetJobStatus(jobId, JOB_STATUS_READY)
 			b.JobNum--
+		case <-gmq.notify:
+			return
 		}
 	}
 }
 
 // 检索到时任务
 func (b *Bucket) retrievalTimeoutJobs() {
+	defer gmq.wg.Done()
+	defer func() {
+		log.Error("retrievalTimeoutJobs退出了")
+	}()
+	gmq.wg.Add(1)
+
 	var (
 		duration = timerDefaultDuration
 		timer    = time.NewTimer(duration)
@@ -121,6 +136,96 @@ func (b *Bucket) retrievalTimeoutJobs() {
 
 			b.NextTime = time.Now().Add(timerDefaultDuration)
 			timer.Reset(timerDefaultDuration)
+		case <-gmq.notify:
+			return
 		}
 	}
+}
+
+// 添加到bucket
+// 有序集合score = 延迟秒数 + 当前时间戳
+// 设置job.status = JOB_STATUS_DELAY
+func AddToBucket(b *Bucket, card *JobCard) error {
+	conn := Redis.Pool.Get()
+	defer conn.Close()
+
+	score := int64(card.delay) + time.Now().Unix()
+	_, err := conn.Do("ZADD", b.Key(), score, card.id)
+	if err == nil {
+		key := GetJobKeyById(card.id)
+		_, err = conn.Do("HSET", key, "status", JOB_STATUS_DELAY)
+	}
+
+	return err
+}
+
+// 移除bucket
+func RemoveFromBucket() error {
+	return nil
+}
+
+// 从指定bucket检索到期的job
+// nextTime
+// 	-1 当前bucket已经没有jobs
+//  >0 当前bucket下个job到期时间
+func RetrivalTimeoutJobs(b *Bucket) (jobIds []string, nextTime int, err error) {
+	jobIds = nil
+	nextTime = -1
+	var records []string
+	now := time.Now().Unix()
+
+	// 检索到期jobs,每次最多取50个(若堆积很多jobs,限制每次处理数量)
+	records, err = Redis.Strings("ZRANGEBYSCORE", b.Key(), 0, now, "WITHSCORES", "LIMIT", 0, 50)
+	if err != nil {
+		return
+	}
+
+	for k, r := range records {
+		// 跳过score
+		if k%2 != 0 {
+			continue
+		}
+		status, err := GetJobStatus(r)
+		if err != nil {
+			// 移除已被确认消费的job
+			if err == redis.ErrNil {
+				Redis.Int("ZREM", b.Key(), r)
+			}
+			continue
+		}
+		// 跳过没有设置为bucket的job(正常情况下不会出现状态错误问题)
+		if status != JOB_STATUS_DELAY && status != JOB_STATUS_RESERVED {
+			continue
+		}
+		// 被检索后,记得删除bucket中的jobs,这里不根据score范围批量删除,是考虑到如果删除过程中,
+		// 刚好又有其他job加入到bucket,这样会误删新加入的job
+		n, err := Redis.Int("ZREM", b.Key(), r)
+		if err == nil && n > 0 {
+			jobIds = append(jobIds, r)
+		}
+	}
+
+	// 下一次定时器执行时间
+	records, err = Redis.Strings("ZRANGE", b.Key(), 0, 0, "WITHSCORES")
+	if err != nil {
+		return
+	}
+	if len(records) == 0 {
+		nextTime = -1
+	} else {
+		nextTime, _ = strconv.Atoi(records[1])
+		nextTime = nextTime - int(now)
+		// 积累了很多到期任务,还没来得及处理,这时下个job到期时间实际上已经小于0,此时设置为1秒不要执行太快
+		if nextTime < 0 {
+			nextTime = 1
+		}
+	}
+
+	return
+}
+
+// 获取bucket中job数量
+func GetBucketJobNum(b *Bucket) int {
+	n, _ := Redis.Int("ZCARD", b.Key())
+	return n
 }

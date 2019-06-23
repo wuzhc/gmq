@@ -7,8 +7,8 @@ import (
 
 func main() {
 	// new dispatcher
-	dispatcher := mq.NewDispatcher()
-	dispatcher.Run()
+	q := mq.NewGmq()
+	q.Run()
 
 	// new service
 	// serv := service.NewService(dispatcher)
