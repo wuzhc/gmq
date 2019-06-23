@@ -169,20 +169,29 @@ func AddToJobPool(j *Job) error {
 	return err
 }
 
-// 添加到准备队列
+// 从bucket添加job到ready queue
+// 设置状态为JOB_STATUS_READY
 func AddToReadyQueue(jobId string) error {
+	conn := Redis.Pool.Get()
+	defer conn.Close()
+
 	key := GetJobKeyById(jobId)
 	job, err := GetJobStuctById(jobId)
 	if err != nil {
 		return err
 	}
 
-	if job.Status != JOB_STATUS_DELAY && job.Delay > 0 {
-		return fmt.Errorf("jobKey:%v,error:status is not delay", key)
+	// bucket只会有两种状态的job,其他状态为error
+	if job.Status != JOB_STATUS_DELAY && job.Status != JOB_STATUS_RESERVED {
+		return fmt.Errorf("jobKey%v,error:job.status is error", key)
 	}
 
 	queue := GetJobQueueByTopic(job.Topic)
-	_, err = Redis.Do("LPUSH", queue, jobId)
+	_, err = conn.Do("LPUSH", queue, jobId)
+	if err == nil {
+		_, err = conn.Do("HSET", key, "status", JOB_STATUS_READY)
+	}
+
 	return err
 }
 

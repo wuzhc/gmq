@@ -55,8 +55,6 @@ func (d *Dispatcher) Run() {
 				if err := AddToReadyQueue(card.id); err != nil {
 					// 添加ready queue失败了,要怎么处理
 					log.Error(err)
-				} else {
-					SetJobStatus(card.id, JOB_STATUS_READY)
 				}
 			}
 		case <-gmq.notify:
