@@ -188,6 +188,16 @@ func AddToReadyQueue(jobId string) error {
 	conn := Redis.Pool.Get()
 	defer conn.Close()
 
+	script := `
+local c = redis.call('llen', KEYS[1])
+local r = redis.call('lpush', KEYS[1], ARGV[1])
+if c + 1 == r then
+    redis.call('hset', KEYS[2], 'status', ARGV[2])
+    return 1
+end
+return 0
+`
+
 	key := GetJobKeyById(jobId)
 	job, err := GetJobStuctById(jobId)
 	if err != nil {
@@ -199,10 +209,8 @@ func AddToReadyQueue(jobId string) error {
 	}
 
 	queue := GetJobQueueByTopic(job.Topic)
-	_, err = conn.Do("LPUSH", queue, jobId)
-	if err == nil {
-		_, err = conn.Do("HSET", key, "status", JOB_STATUS_READY)
-	}
+	var ns = redis.NewScript(2, script)
+	_, err = redis.Bool(ns.Do(conn, queue, key, jobId, JOB_STATUS_READY))
 
 	return err
 }
