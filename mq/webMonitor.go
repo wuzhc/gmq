@@ -1,7 +1,6 @@
 package mq
 
 import (
-	"fmt"
 	"go-mq/utils"
 	"net/http"
 	"strconv"
@@ -43,7 +42,6 @@ func (w *WebMonitor) Run() {
 	r.Run(":8000")
 }
 
-// 首页
 func (w *WebMonitor) index(c *gin.Context) {
 	c.HTML(http.StatusOK, "entry.html", gin.H{
 		"siteName":      "web监控管理",
@@ -52,28 +50,24 @@ func (w *WebMonitor) index(c *gin.Context) {
 	})
 }
 
-// 主页
 func (w *WebMonitor) home(c *gin.Context) {
 	c.HTML(http.StatusOK, "home.html", gin.H{
 		"title": "主页",
 	})
 }
 
-// 登录
 func (w *WebMonitor) login(c *gin.Context) {
 	c.HTML(http.StatusOK, "login.html", gin.H{
 		"title": "登录页面",
 	})
 }
 
-// bucket列表页
 func (w *WebMonitor) bucketList(c *gin.Context) {
 	c.HTML(http.StatusOK, "bucket_list.html", gin.H{
 		"title": "bucket列表",
 	})
 }
 
-// bucket中job列表
 func (w *WebMonitor) bucketJobList(c *gin.Context) {
 	bucketKey := c.Query("bucketKey")
 	if len(bucketKey) == 0 {
@@ -86,14 +80,12 @@ func (w *WebMonitor) bucketJobList(c *gin.Context) {
 	})
 }
 
-// ready queue列表页
 func (w *WebMonitor) readyQueueList(c *gin.Context) {
 	c.HTML(http.StatusOK, "readyqueue_list.html", gin.H{
 		"title": "readyQueue列表",
 	})
 }
 
-// 任务job详情
 func (w *WebMonitor) jobDetail(c *gin.Context) {
 	jobId := c.Query("jobId")
 	if len(jobId) == 0 {
@@ -114,7 +106,6 @@ func (w *WebMonitor) jobDetail(c *gin.Context) {
 	})
 }
 
-// 根据jobId获取job详情
 func (w *WebMonitor) getJobDetailById(c *gin.Context) {
 	jobId := c.Query("jobId")
 	if len(jobId) == 0 {
@@ -129,7 +120,6 @@ func (w *WebMonitor) getJobDetailById(c *gin.Context) {
 	c.JSON(http.StatusOK, detail)
 }
 
-// 根据bucketKey获取bucket任务列表
 func (w *WebMonitor) getJobsByBucketKey(c *gin.Context) {
 	n := c.DefaultQuery("limit", "20")
 	k := c.Query("bucketKey")
@@ -188,15 +178,17 @@ func (w *WebMonitor) getStatusName(status string) string {
 		return `<span class="layui-badge layui-bg-orange">delay</span>`
 	}
 	if s == JOB_STATUS_READY {
-		return `<span class="layui-badge layui-bg-cyan">ready</span>`
+		return `<span class="layui-badge layui-bg-red">ready</span>`
 	}
 	if s == JOB_STATUS_RESERVED {
 		return `<span class="layui-badge layui-bg-blue">reserved</span>`
 	}
-	return `<span class="layui-badge layui-bg-black">unknown</span>`
+	if s == JOB_STATUS_DETAULT {
+		return `<span class="layui-badge layui-bg-cyan">default</span>`
+	}
+	return `<span class="layui-badge layui-bg-black">delete</span>`
 }
 
-// 获取readyQueue统计信息
 func (w *WebMonitor) getReadyQueueStat(c *gin.Context) {
 	records, err := Redis.Strings("KEYS", READY_QUEUE_KEY+"*")
 	if err != nil {
@@ -224,7 +216,6 @@ func (w *WebMonitor) getReadyQueueStat(c *gin.Context) {
 	c.JSON(http.StatusOK, w.rspData(res))
 }
 
-// 获取bucket统计信息
 func (w *WebMonitor) getBucketStat(c *gin.Context) {
 	type bucketInfo struct {
 		Id         int    `json:"id"`
@@ -237,7 +228,7 @@ func (w *WebMonitor) getBucketStat(c *gin.Context) {
 		res = append(res, bucketInfo{
 			Id:         k + 1,
 			BucketName: GetBucketKeyById(b.Id),
-			JobNum:     b.JobNum,
+			JobNum:     GetBucketJobNum(b),
 			NextTime:   utils.FormatTime(b.NextTime),
 		})
 	}
@@ -270,10 +261,15 @@ func (w *WebMonitor) rspSuccess(msg interface{}) gin.H {
 }
 
 func (w *WebMonitor) test(c *gin.Context) {
-	res, err := GetJobStatus("xxxxe")
+	var s = []interface{}{
+		"ketang",
+		"xuetang",
+		10,
+	}
+	records, err := Redis.Strings("BRPOP", s...)
 	if err != nil {
-		fmt.Println("error", err)
+		c.Writer.Write([]byte(err.Error()))
 	} else {
-		fmt.Println(res, err)
+		c.JSON(http.StatusOK, records)
 	}
 }

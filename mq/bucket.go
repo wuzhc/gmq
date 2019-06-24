@@ -43,9 +43,6 @@ func (b *Bucket) Key() string {
 
 func (b *Bucket) run() {
 	defer gmq.wg.Done()
-	defer func() {
-		log.Error("bucket", b.Key(), "run退出了")
-	}()
 	gmq.wg.Add(1)
 
 	go b.retrievalTimeoutJobs()
@@ -77,8 +74,6 @@ func (b *Bucket) run() {
 				log.Error(err)
 				continue
 			}
-
-			SetJobStatus(jobId, JOB_STATUS_READY)
 			b.JobNum--
 		case <-gmq.notify:
 			return
@@ -143,18 +138,30 @@ func (b *Bucket) retrievalTimeoutJobs() {
 }
 
 // 添加到bucket
-// 有序集合score = 延迟秒数 + 当前时间戳
-// 设置job.status = JOB_STATUS_DELAY
+// 有序集合score = 延迟秒数 + 当前时间戳, member = jobId
+// 并且设置job.status = JOB_STATUS_DELAY
+// TTR>0时,有可能job先被删除后再添加到bucket,所以添加到bucket前需要检测job是否存在
 func AddToBucket(b *Bucket, card *JobCard) error {
 	conn := Redis.Pool.Get()
 	defer conn.Close()
 
-	score := int64(card.delay) + time.Now().Unix()
-	_, err := conn.Do("ZADD", b.Key(), score, card.id)
-	if err == nil {
-		key := GetJobKeyById(card.id)
-		_, err = conn.Do("HSET", key, "status", JOB_STATUS_DELAY)
-	}
+	script := `
+local isExist = redis.call('exists', KEYS[2])
+if isExist == 0 then
+    return 0
+end
+
+local res = redis.call('zadd', KEYS[1], ARGV[1], ARGV[2])
+if res == 1 then
+    redis.call('hset', KEYS[2], 'status', ARGV[3])
+    return 1
+end
+return 0
+`
+	var score = int64(card.delay) + time.Now().Unix()
+	var jobKey = GetJobKeyById(card.id)
+	var ns = redis.NewScript(2, script)
+	_, err := redis.Bool(ns.Do(conn, b.Key(), jobKey, score, card.id, JOB_STATUS_DELAY))
 
 	return err
 }
@@ -165,7 +172,7 @@ func RemoveFromBucket() error {
 }
 
 // 从指定bucket检索到期的job
-// nextTime
+// nextTime参数如下:
 // 	-1 当前bucket已经没有jobs
 //  >0 当前bucket下个job到期时间
 func RetrivalTimeoutJobs(b *Bucket) (jobIds []string, nextTime int, err error) {
@@ -224,8 +231,8 @@ func RetrivalTimeoutJobs(b *Bucket) (jobIds []string, nextTime int, err error) {
 	return
 }
 
-// 获取bucket中job数量
 func GetBucketJobNum(b *Bucket) int {
 	n, _ := Redis.Int("ZCARD", b.Key())
+
 	return n
 }

@@ -47,13 +47,13 @@ func (gmq *Gmq) Run() {
 		<-sigs
 		gmq.running = 0
 		close(gmq.notify)        // 通知其他goroutine退出
-		gmq.wg.Wait()            // 等待goroutine退出
+		gmq.wg.Wait()            // 等待goroutine安全退出
 		gmq.closed <- struct{}{} // 关闭整个服务
 	}()
 
-	go Dper.Run()
-	go Wmor.Run()
-	go Serv.Run()
+	go Dper.Run() // job调度服务
+	go Wmor.Run() // web监控服务
+	go Serv.Run() // rpc服务或http服务
 
 	<-gmq.closed
 	fmt.Println("Closed.")

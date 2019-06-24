@@ -7,7 +7,6 @@ import (
 	"strconv"
 )
 
-//自己的数据类
 type Service struct {
 }
 
@@ -31,9 +30,13 @@ func (s *Service) Push(j map[string]string, reply *string) error {
 	return nil
 }
 
-// 1. 没有数据的时候
 func (s *Service) Pop(topic []string, reply *map[string]string) (err error) {
 	*reply, err = Pop(topic...)
+	return err
+}
+
+func (s *Service) Ack(id string, reply *bool) (err error) {
+	*reply, err = Ack(id)
 	return err
 }
 
@@ -51,7 +54,6 @@ func (s *RpcServer) Run() {
 		if err != nil {
 			continue
 		}
-		//新协程来处理--json
 		go jsonrpc.ServeConn(conn)
 	}
 }

@@ -48,6 +48,7 @@ func (d *Dispatcher) Run() {
 		select {
 		case card := <-d.addToBucket:
 			if card.delay > 0 {
+				// bucket.job_number可能会有差误,比如手动删除队列元素(这种情况需要重启服务,才能复位)
 				sort.Sort(ByNum(d.bucket))
 				d.bucket[0].recvJob <- card
 			} else {
@@ -69,6 +70,7 @@ func (d *Dispatcher) initBucket() error {
 	if n <= 0 {
 		return ErrBucketNum
 	}
+
 	for i := 0; i < n; i++ {
 		b := &Bucket{
 			Id:              strconv.Itoa(i),
@@ -78,11 +80,12 @@ func (d *Dispatcher) initBucket() error {
 			resetTimerChan:  make(chan struct{}),
 		}
 
-		// 初始化job数量,可能上次执行到一半就终止了
+		// 复位job数量
 		b.JobNum = GetBucketJobNum(b)
 		go b.run()
 		d.bucket = append(d.bucket, b)
 	}
+
 	return nil
 }
 
@@ -96,6 +99,7 @@ func (d *Dispatcher) AddToJobPool(j *Job) error {
 	}
 
 	d.addToBucket <- j.Card()
+
 	return nil
 }
 

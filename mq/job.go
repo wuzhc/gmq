@@ -38,6 +38,7 @@ func (j *Job) CheckJobData() error {
 	if len(j.Topic) == 0 {
 		return ErrJobTopicEmpty
 	}
+
 	return nil
 }
 
@@ -69,6 +70,7 @@ func Encode(j *Job) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	return string(nbyte), nil
 }
 
@@ -78,10 +80,10 @@ func Decode(j string) (*Job, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return job, nil
 }
 
-// 每次消费一个job
 func Pop(topics ...string) (map[string]string, error) {
 	if len(topics) == 0 {
 		return nil, errors.New("topics is empty")
@@ -91,7 +93,10 @@ func Pop(topics ...string) (map[string]string, error) {
 	for _, t := range topics {
 		ts = append(ts, GetJobQueueByTopic(t))
 	}
-	ts = append(ts, 3)
+	ts = append(ts, 2)
+
+	// 每次只会消费一个job,多个consumer消费时,redis会轮询分配给各个consumer
+	// consumer订阅多个topic时,会按照topic顺序读取,即先消费完第一个topic所有job,才会进行下一个topic
 	records, err := Redis.Strings("BRPOP", ts...)
 	if err != nil {
 		if err == redis.ErrNil {
@@ -119,43 +124,53 @@ func Pop(topics ...string) (map[string]string, error) {
 	if TTR > 0 {
 		Dper.addToBucket <- &JobCard{
 			id:    detail["id"],
-			delay: TTR,
+			delay: TTR + 3,
 			topic: detail["topic"],
 		}
 		// 计数被消费次数
 		IncrJobConsumeNum(jobId)
+	} else {
+		Ack(detail["id"])
 	}
 
 	return detail, nil
 }
 
-// 确认删除job
 func Ack(jobId string) (bool, error) {
 	job, err := GetJobStuctById(jobId)
 	if err != nil {
 		return false, err
 	}
 
-	if job.Status != JOB_STATUS_RESERVED {
-		if job.Status == JOB_STATUS_DELAY && job.ConsumeNum > 0 {
-			return false, errors.New("job执行时间TTR已过期,将再次添加到队列")
+	// TTR=0,被消费
+	if job.Status == JOB_STATUS_RESERVED {
+		return Redis.Bool("DEL", GetJobKeyById(jobId))
+	}
+	// TTR>0,被消费后重新加到bucket,如果到期未确认删除会重新加到readyQueue再次被消费
+	if job.Status == JOB_STATUS_DELAY && job.ConsumeNum > 0 {
+		return Redis.Bool("DEL", GetJobKeyById(jobId))
+	}
+	// 可能正在被再次消费或者未被消费
+	if job.Status == JOB_STATUS_READY {
+		if job.ConsumeNum > 0 {
+			return false, errors.New("TTR has expired and will be consumed again")
+		} else {
+			return false, errors.New("Job is not be reserved")
 		}
-		return false, errors.New("job未被读取")
 	}
 
-	return Redis.Bool("DEL", GetJobKeyById(jobId))
+	return false, errors.New("Unknown error")
 }
 
-// 生产job
 func Push(j string) error {
 	job, err := Decode(j)
 	if err != nil {
 		return err
 	}
+
 	return AddToJobPool(job)
 }
 
-// 添加job到任务池
 func AddToJobPool(j *Job) error {
 	isExist, err := Redis.Bool("EXISTS", j.Key())
 	if err != nil {
@@ -169,8 +184,6 @@ func AddToJobPool(j *Job) error {
 	return err
 }
 
-// 从bucket添加job到ready queue
-// 设置状态为JOB_STATUS_READY
 func AddToReadyQueue(jobId string) error {
 	conn := Redis.Pool.Get()
 	defer conn.Close()
@@ -181,8 +194,7 @@ func AddToReadyQueue(jobId string) error {
 		return err
 	}
 
-	// bucket只会有两种状态的job,其他状态为error
-	if job.Status != JOB_STATUS_DELAY && job.Status != JOB_STATUS_RESERVED {
+	if job.Status != JOB_STATUS_DELAY && job.Delay > 0 {
 		return fmt.Errorf("jobKey%v,error:job.status is error", key)
 	}
 
@@ -195,19 +207,16 @@ func AddToReadyQueue(jobId string) error {
 	return err
 }
 
-// 根据jobId获取topic
 func GetTopicByJobId(jobId string) (string, error) {
 	key := GetJobKeyById(jobId)
 	return Redis.String("HGET", key, "topic")
 }
 
-// 根据id获取job详情
 func GetJobDetailById(jobId string) (map[string]string, error) {
 	key := GetJobKeyById(jobId)
 	return Redis.StringMap("HGETALL", key)
 }
 
-// 根据jobId获取job详情
 func GetJobStuctById(jobId string) (*Job, error) {
 	detail, err := GetJobDetailById(jobId)
 	if err != nil {
@@ -226,37 +235,38 @@ func GetJobStuctById(jobId string) (*Job, error) {
 	if err != nil {
 		return nil, err
 	}
+	consume_num, err := strconv.Atoi(detail["consume_num"])
+	if err != nil {
+		return nil, err
+	}
 	return &Job{
-		Id:     detail["id"],
-		Topic:  detail["topic"],
-		Delay:  delay,
-		TTR:    TTR,
-		Body:   detail["body"],
-		Status: status,
+		Id:         detail["id"],
+		Topic:      detail["topic"],
+		Delay:      delay,
+		TTR:        TTR,
+		Body:       detail["body"],
+		Status:     status,
+		ConsumeNum: consume_num,
 	}, nil
 }
 
-// 设置job状态
 func SetJobStatus(jobId string, status int) error {
 	key := GetJobKeyById(jobId)
 	_, err := Redis.Do("HSET", key, "status", status)
 	return err
 }
 
-// 计数被消费次数
+func GetJobStatus(jobId string) (int, error) {
+	key := GetJobKeyById(jobId)
+	return Redis.Int("HGET", key, "status")
+}
+
 func IncrJobConsumeNum(jobId string) (bool, error) {
 	key := GetJobKeyById(jobId)
 	return Redis.Bool("HINCRBY", key, "consume_num", 1)
 }
 
-// 获取job被消费次数
 func GetJobConsumeNum(jobId string) (int, error) {
 	key := GetJobKeyById(jobId)
 	return Redis.Int("HGET", key, "consume_num")
-}
-
-// 获取job状态
-func GetJobStatus(jobId string) (int, error) {
-	key := GetJobKeyById(jobId)
-	return Redis.Int("HGET", key, "status")
 }
