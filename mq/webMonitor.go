@@ -3,6 +3,7 @@ package mq
 import (
 	"gmq/utils"
 	"net/http"
+	"sort"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -223,8 +224,11 @@ func (w *WebMonitor) getBucketStat(c *gin.Context) {
 		JobNum     int    `json:"job_num"`
 		NextTime   string `json:"next_time"`
 	}
+
 	var res []bucketInfo
-	for k, b := range Dper.bucket {
+	buckets := Dper.bucket
+	sort.Sort(ById(buckets))
+	for k, b := range buckets {
 		res = append(res, bucketInfo{
 			Id:         k + 1,
 			BucketName: GetBucketKeyById(b.Id),

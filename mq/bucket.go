@@ -35,7 +35,11 @@ func (b ByNum) Swap(i, j int)      { b[i], b[j] = b[j], b[i] }
 func (b ByNum) Less(i, j int) bool { return b[i].JobNum < b[j].JobNum }
 func (b ById) Len() int            { return len(b) }
 func (b ById) Swap(i, j int)       { b[i], b[j] = b[j], b[i] }
-func (b ById) Less(i, j int) bool  { return b[i].Id < b[j].Id }
+func (b ById) Less(i, j int) bool {
+	iid, _ := strconv.Atoi(b[i].Id)
+	jid, _ := strconv.Atoi(b[j].Id)
+	return iid < jid
+}
 
 func (b *Bucket) Key() string {
 	return GetBucketKeyById(b.Id)
