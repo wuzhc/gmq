@@ -8,10 +8,9 @@ type target interface {
 
 // 输出前缀
 func logPrefix(level int) string {
-	prefix, ok := logPrefixMap[level]
-	if !ok {
-		prefix = "-"
+	if prefix, ok := logPrefixMap[level]; ok {
+		return prefix
 	}
 
-	return prefix
+	return "-"
 }

@@ -2,12 +2,14 @@
 // 支持旋转日志,默认日志文件为5个,可以自定义
 // 当前日志文件大小超过指定值,进行日志旋转,过程如下:
 // 比如maxFiles为5个,关闭1文件句柄,删除日志5,重命名4->5,3->4,2->3,1->2,重新打开1文件句柄,继续往1文件写
+// @author wuzhc 20190623
 
 package logs
 
 import (
 	"encoding/json"
 	"fmt"
+	"gmq/utils"
 	"os"
 	"strconv"
 	"sync"
@@ -19,10 +21,15 @@ type fileTarget struct {
 	Filename string `json:"filename"`
 	fd       *os.File
 	curSize  int64
+	Level    int
 	MaxSize  int64 `json:"max_size"`
 	Rotate   bool  `json:"rotate"`
 	MaxFiles int   `json:"max_files"`
 	openTime time.Time
+}
+
+func init() {
+	RegisterTarget(TARGET_FILE, &fileTarget{})
 }
 
 func (f *fileTarget) WriteMsg(data logData) {
@@ -35,15 +42,19 @@ func (f *fileTarget) WriteMsg(data logData) {
 	f.Lock()
 	defer f.Unlock()
 
+	// 如果消息的等级比配置文件的高,则不写日志文件
+	// 例如f.Level为LOG_WARN时,表示只写入LOG_WARN和LOG_ERROR的消息
+	if data.level > f.Level {
+		return
+	}
+
 	// 旋转日志
-	if f.Rotate && f.curSize > 0 && f.MaxSize <= f.curSize {
-		fmt.Printf("cursize:%v,maxsize:%v\n", f.curSize, f.MaxSize)
+	if f.Rotate && f.curSize > 0 && f.curSize >= f.MaxSize {
 		f.rotateFile()
 	}
 
 	prefix := logPrefix(data.level)
-	now := time.Now().Format("2006-01-02 15:04:05")
-
+	now := utils.CurDatetime()
 	s := fmt.Sprintf("[%s] [%s] [%s] %s \n", prefix, data.category, now, data.msg)
 	nbyte, err := f.fd.WriteString(s)
 	if err != nil {
@@ -52,12 +63,10 @@ func (f *fileTarget) WriteMsg(data logData) {
 	if nbyte != len(s) {
 		panic(fmt.Sprintf("Unable to export whole log through file! Wrote %v out of %v bytes.", nbyte, len(s)))
 	}
-
 	fileInfo, err := f.fd.Stat()
 	if err != nil {
 		panic(err)
 	}
-
 	f.curSize = fileInfo.Size()
 }
 
@@ -65,22 +74,20 @@ func (f *fileTarget) Init(config string) error {
 	if err := json.Unmarshal([]byte(config), &f); err != nil {
 		return err
 	}
-
 	if f.Filename == "" {
-		return fmt.Errorf("%v", "Filename不能为空")
+		return fmt.Errorf("File target init failed; error:%v", "Filename is Empty")
 	}
 
 	fd, err := openFile(f.Filename)
 	if err != nil {
 		return err
 	}
-	f.fd = fd
 
+	f.fd = fd
 	fileInfo, err := f.fd.Stat()
 	if err != nil {
 		return err
 	}
-
 	f.curSize = fileInfo.Size()
 	return nil
 }
@@ -131,8 +138,4 @@ func (f *fileTarget) rotateFile() {
 
 func openFile(filename string) (*os.File, error) {
 	return os.OpenFile(filename, os.O_RDWR|os.O_APPEND|os.O_CREATE, os.ModePerm)
-}
-
-func init() {
-	RegisterTarget(TARGET_FILE, &fileTarget{})
 }
