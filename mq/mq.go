@@ -2,7 +2,7 @@ package mq
 
 import (
 	"fmt"
-	"go-mq/logs"
+	"gmq/logs"
 	"os"
 	"os/signal"
 	"sync"

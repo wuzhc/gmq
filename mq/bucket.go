@@ -2,8 +2,8 @@ package mq
 
 import (
 	"fmt"
-	"go-mq/logs"
-	"go-mq/utils"
+	"gmq/logs"
+	"gmq/utils"
 	"strconv"
 	"sync"
 	"time"
