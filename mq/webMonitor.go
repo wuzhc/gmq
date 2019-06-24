@@ -1,7 +1,7 @@
 package mq
 
 import (
-	"go-mq/utils"
+	"gmq/utils"
 	"net/http"
 	"strconv"
 

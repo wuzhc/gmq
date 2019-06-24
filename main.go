@@ -1,16 +1,10 @@
 package main
 
 import (
-	"go-mq/mq"
-	// "go-mq/service"
+	"gmq/mq"
 )
 
 func main() {
-	// new dispatcher
 	q := mq.NewGmq()
 	q.Run()
-
-	// new service
-	// serv := service.NewService(dispatcher)
-	// serv.Target.Run()
 }
