@@ -1,3 +1,5 @@
+// 时间工具类
+// @author wuzhc 20190623
 package utils
 
 import (
@@ -6,6 +8,11 @@ import (
 	"strconv"
 	"time"
 )
+
+// 当前时间,格式YY-mm-dd H:i:s
+func CurDatetime() string {
+	return time.Now().Format("2006-01-02 15:04:05")
+}
 
 // time.Time to "2019-06-07 12:00:00"
 func FormatTime(t time.Time) string {
