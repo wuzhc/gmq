@@ -189,14 +189,14 @@ func AddToReadyQueue(jobId string) error {
 	defer conn.Close()
 
 	script := `
-local c = redis.call('llen', KEYS[1])
-local r = redis.call('lpush', KEYS[1], ARGV[1])
-if c + 1 == r then
-    redis.call('hset', KEYS[2], 'status', ARGV[2])
-    return 1
-end
-return 0
-`
+		local c = redis.call('llen', KEYS[1])
+		local r = redis.call('lpush', KEYS[1], ARGV[1])
+		if c + 1 == r then
+		    redis.call('hset', KEYS[2], 'status', ARGV[2])
+		    return 1
+		end
+		return 0
+	`
 
 	key := GetJobKeyById(jobId)
 	job, err := GetJobStuctById(jobId)

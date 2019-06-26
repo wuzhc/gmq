@@ -141,6 +141,7 @@ func (b *Bucket) retrievalTimeoutJobs() {
 
 			timer.Reset(duration)
 		case <-b.resetTimerChan:
+			// 大并发场景下,会出现在重置定时器期间有多个重置的请求,目前来说影响不大
 			if !timer.Stop() {
 				select {
 				case <-timer.C:
@@ -165,18 +166,18 @@ func AddToBucket(b *Bucket, card *JobCard) error {
 	defer conn.Close()
 
 	script := `
-local isExist = redis.call('exists', KEYS[2])
-if isExist == 0 then
-    return 0
-end
-
-local res = redis.call('zadd', KEYS[1], ARGV[1], ARGV[2])
-if res == 1 then
-    redis.call('hset', KEYS[2], 'status', ARGV[3])
-    return 1
-end
-return 0
-`
+		local isExist = redis.call('exists', KEYS[2])
+		if isExist == 0 then
+		    return 0
+		end
+		
+		local res = redis.call('zadd', KEYS[1], ARGV[1], ARGV[2])
+		if res == 1 then
+		    redis.call('hset', KEYS[2], 'status', ARGV[3])
+		    return 1
+		end
+		return 0
+	`
 	var score = int64(card.delay) + time.Now().Unix()
 	var jobKey = GetJobKeyById(card.id)
 	var ns = redis.NewScript(2, script)
@@ -196,58 +197,57 @@ func RemoveFromBucket() error {
 //  >0 当前bucket下个job到期时间
 // 可能整个事务需要保证原子一致性
 func RetrivalTimeoutJobs(b *Bucket) (jobIds []string, nextTime int, err error) {
-	jobIds = nil
-	nextTime = -1
-	var records []string
-	now := time.Now().Unix()
+	conn := Redis.Pool.Get()
+	defer conn.Close()
 
-	// 检索到期jobs,每次最多取50个(若堆积很多jobs,限制每次处理数量)
-	records, err = Redis.Strings("ZRANGEBYSCORE", b.Key(), 0, now, "WITHSCORES", "LIMIT", 0, 50)
+	script := `
+		local jobIds = redis.call('zrangebyscore',KEYS[1], 0, ARGV[4], 'withscores', 'limit', 0, 50)
+		local res = {}
+		for k,jobId in ipairs(jobIds) do 
+			if k%2~=0 then
+				local jobKey = string.format('%s:%s', ARGV[3], jobId)
+				local status = redis.call('hget', jobKey, 'status')
+				if tonumber(status) == tonumber(ARGV[1]) or tonumber(status) == tonumber(ARGV[2]) then
+					local isDel = redis.call('zrem', KEYS[1], jobId)
+					if isDel == 1 then
+						table.insert(res, jobId)
+					end
+				end
+			end
+		end
+		
+		local nextTime
+		local nextJob = redis.call('zrange', KEYS[1], 0, 0, 'withscores')
+		if next(nextJob) == nil then
+			nextTime = -1
+		else
+			nextTime = tonumber(nextJob[2]) - tonumber(ARGV[4])
+			if nextTime < 0 then
+				nextTime = 1
+			end
+		end
+		
+		table.insert(res,1,tostring(nextTime))
+		return res
+	
+	`
+
+	var ns = redis.NewScript(1, script)
+	res, err := redis.Strings(ns.Do(conn, b.Key(), JOB_STATUS_DELAY, JOB_STATUS_RESERVED, JOB_POOL_KEY, time.Now().Unix()))
+	if err != nil {
+		log.Debug(err)
+		return nil, 0, err
+	}
+
+	nextTime, err = strconv.Atoi(res[0])
 	if err != nil {
 		return
 	}
-
-	for k, r := range records {
-		// 跳过score
-		if k%2 != 0 {
-			continue
-		}
-		status, err := GetJobStatus(r)
-		if err != nil {
-			// 移除已被确认消费的job
-			if err == redis.ErrNil {
-				Redis.Int("ZREM", b.Key(), r)
-			}
-			continue
-		}
-		// 跳过没有设置为bucket的job(正常情况下不会出现状态错误问题)
-		if status != JOB_STATUS_DELAY && status != JOB_STATUS_RESERVED {
-			continue
-		}
-		// 被检索后,记得删除bucket中的jobs,这里不根据score范围批量删除,是考虑到如果删除过程中,
-		// 刚好又有其他job加入到bucket,这样会误删新加入的job
-		n, err := Redis.Int("ZREM", b.Key(), r)
-		if err == nil && n > 0 {
-			jobIds = append(jobIds, r)
-		}
-	}
-
-	// 下一次定时器执行时间
-	records, err = Redis.Strings("ZRANGE", b.Key(), 0, 0, "WITHSCORES")
-	if err != nil {
-		return
-	}
-	if len(records) == 0 {
-		nextTime = -1
+	if len(res) > 1 {
+		jobIds = res[1:]
 	} else {
-		nextTime, _ = strconv.Atoi(records[1])
-		nextTime = nextTime - int(now)
-		// 积累了很多到期任务,还没来得及处理,这时下个job到期时间实际上已经小于0,此时设置为1秒不要执行太快
-		if nextTime < 0 {
-			nextTime = 1
-		}
+		jobIds = nil
 	}
-
 	return
 }
 

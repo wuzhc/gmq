@@ -67,7 +67,7 @@ func (d *Dispatcher) Run() {
 
 // 初始化bucket
 func (d *Dispatcher) initBucket() error {
-	n := 10
+	n := 3
 	if n <= 0 {
 		return ErrBucketNum
 	}
