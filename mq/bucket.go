@@ -25,6 +25,8 @@ type Bucket struct {
 	recvJob         chan *JobCard
 	addToReadyQueue chan string
 	resetTimerChan  chan struct{}
+	closed          chan struct{}
+	wg              sync.WaitGroup
 }
 
 type ByNum []*Bucket
@@ -47,9 +49,13 @@ func (b *Bucket) Key() string {
 
 func (b *Bucket) run() {
 	defer gmq.wg.Done()
+	defer func() {
+		log.Error(fmt.Sprintf("bucket:%v closed.", b.Id))
+	}()
 	gmq.wg.Add(1)
 
 	go b.retrievalTimeoutJobs()
+	go b.waitClose()
 
 	for {
 		select {
@@ -79,19 +85,28 @@ func (b *Bucket) run() {
 				continue
 			}
 			b.JobNum--
-		case <-gmq.notify:
+		case <-b.closed:
+			// 等待dispatcher和timer优先退出
 			return
 		}
 	}
 }
 
+func (b *Bucket) waitClose() {
+	<-Dper.closed
+	b.wg.Wait()
+	log.Info(fmt.Sprintf("bucket:%v waiting for close...", b.Id))
+	time.Sleep(2)
+	b.closed <- struct{}{}
+}
+
 // 检索到时任务
 func (b *Bucket) retrievalTimeoutJobs() {
-	defer gmq.wg.Done()
+	defer b.wg.Done()
 	defer func() {
-		log.Error("retrievalTimeoutJobs退出了")
+		log.Error(fmt.Sprintf("retrievalTimeoutJobs:%v closed.", b.Id))
 	}()
-	gmq.wg.Add(1)
+	b.wg.Add(1)
 
 	var (
 		duration = timerDefaultDuration
@@ -179,6 +194,7 @@ func RemoveFromBucket() error {
 // nextTime参数如下:
 // 	-1 当前bucket已经没有jobs
 //  >0 当前bucket下个job到期时间
+// 可能整个事务需要保证原子一致性
 func RetrivalTimeoutJobs(b *Bucket) (jobIds []string, nextTime int, err error) {
 	jobIds = nil
 	nextTime = -1

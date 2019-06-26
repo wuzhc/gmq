@@ -21,20 +21,19 @@ type Dispatcher struct {
 	conf        *ini.File
 	addToBucket chan *JobCard
 	bucket      []*Bucket
+	closed      chan struct{}
 }
 
 func init() {
 	Dper = &Dispatcher{
 		addToBucket: make(chan *JobCard),
+		closed:      make(chan struct{}),
 	}
 }
 
 // job调度器,负责bucket分配
 func (d *Dispatcher) Run() {
 	defer gmq.wg.Done()
-	defer func() {
-		log.Error("dispatcher退出了")
-	}()
 	gmq.wg.Add(1)
 
 	if gmq.running == 0 {
@@ -59,6 +58,8 @@ func (d *Dispatcher) Run() {
 				}
 			}
 		case <-gmq.notify:
+			log.Info("dispatcher notifies all bucket to close.")
+			close(d.closed)
 			return
 		}
 	}
@@ -66,7 +67,7 @@ func (d *Dispatcher) Run() {
 
 // 初始化bucket
 func (d *Dispatcher) initBucket() error {
-	n := 30
+	n := 10
 	if n <= 0 {
 		return ErrBucketNum
 	}
@@ -78,6 +79,7 @@ func (d *Dispatcher) initBucket() error {
 			recvJob:         make(chan *JobCard),
 			addToReadyQueue: make(chan string),
 			resetTimerChan:  make(chan struct{}),
+			closed:          make(chan struct{}),
 		}
 
 		// 复位job数量
