@@ -41,9 +41,9 @@ func (gmq *Gmq) Run() {
 	log.SetTarget(logs.TARGET_FILE, `{"filename":"xxx.log","level":2,"max_size":50000000,"rotate":true}`)
 	log.SetTarget(logs.TARGET_CONSOLE, "")
 
-	// 直接从进程管理杀死程序就没办法收到信号的. ???
+	// 无法捕获SIGKILL信号,不要使用kill -9 pid命令来杀死进程
 	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	go func() {
 		<-sigs
 		gmq.running = 0
