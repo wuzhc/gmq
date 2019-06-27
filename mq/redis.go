@@ -13,9 +13,10 @@ type RedisDB struct {
 var Redis *RedisDB
 
 const (
-	JOB_POOL_KEY    = "job_pool"
-	BUCKET_KEY      = "bucket"
-	READY_QUEUE_KEY = "ready_queue"
+	JOB_POOL_KEY          = "gmq:jobpool"
+	BUCKET_KEY            = "gmq:bucket"
+	READY_QUEUE_KEY       = "gmq:readyqueue"
+	READY_QUEUE_CACHE_KEY = "gmq:rqcachekey"
 )
 
 func init() {
