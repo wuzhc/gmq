@@ -44,6 +44,11 @@ func (w *WebMonitor) Run() {
 }
 
 func (w *WebMonitor) index(c *gin.Context) {
+	if err := updateReadyQueueCache(); err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	c.HTML(http.StatusOK, "entry.html", gin.H{
 		"siteName":      "web监控管理",
 		"version":       "v1.0",
@@ -82,9 +87,28 @@ func (w *WebMonitor) bucketJobList(c *gin.Context) {
 }
 
 func (w *WebMonitor) readyQueueList(c *gin.Context) {
+	if err := updateReadyQueueCache(); err != nil {
+		c.String(http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	c.HTML(http.StatusOK, "readyqueue_list.html", gin.H{
 		"title": "readyQueue列表",
 	})
+}
+
+func updateReadyQueueCache() error {
+	var queues interface{}
+	var err error
+
+	queues, err = Redis.Do("KEYS", READY_QUEUE_KEY+"*")
+	if queues != nil {
+		Redis.Bool("DEL", READY_QUEUE_CACHE_KEY)
+		args := []interface{}{READY_QUEUE_CACHE_KEY}
+		args = append(args, queues.([]interface{})...)
+		_, err = Redis.Bool("SADD", args...)
+	}
+	return err
 }
 
 func (w *WebMonitor) jobDetail(c *gin.Context) {
@@ -191,7 +215,10 @@ func (w *WebMonitor) getStatusName(status string) string {
 }
 
 func (w *WebMonitor) getReadyQueueStat(c *gin.Context) {
-	records, err := Redis.Strings("KEYS", READY_QUEUE_KEY+"*")
+	var queues []string
+	var err error
+
+	queues, err = Redis.Strings("SMEMBERS", READY_QUEUE_CACHE_KEY)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, w.rspErr(err))
 	}
@@ -202,7 +229,7 @@ func (w *WebMonitor) getReadyQueueStat(c *gin.Context) {
 		JobNum    int    `json:"job_num"`
 	}
 	var res []queueInfo
-	for k, r := range records {
+	for k, r := range queues {
 		num, err := Redis.Int("LLEN", r)
 		if err != nil {
 			num = 0
