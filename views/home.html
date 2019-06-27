@@ -24,7 +24,7 @@
       
       function getBucketInfo() {
         $.ajax({
-          url:"http://127.0.0.1:8000/getBucketStat",
+          url:"/getBucketStat",
           dataType:"json",
           success:function(res){
             // 指定图表的配置项和数据
@@ -69,7 +69,7 @@
       
       function getQueueInfo() {
         $.ajax({
-          url:"http://127.0.0.1:8000/getReadyQueueStat",
+          url:"/getReadyQueueStat",
           dataType:"json",
           success:function(res){
             // 指定图表的配置项和数据
