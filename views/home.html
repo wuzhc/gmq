@@ -15,12 +15,12 @@
       // bucket 
       var bucket =echarts.init(document.getElementById('bucket'));
       bucket.showLoading();
-      setInterval(getBucketInfo,2000)
+      setInterval(getBucketInfo,3000)
       
       // queue
       var queue = echarts.init(document.getElementById('queue'));
       queue.showLoading();
-      setInterval(getQueueInfo,2000)
+      setInterval(getQueueInfo,3000)
       
       function getBucketInfo() {
         $.ajax({
