@@ -18,16 +18,19 @@ var (
 // 调度Job分配到bucket
 // 管理bucket
 type Dispatcher struct {
-	conf        *ini.File
-	addToBucket chan *JobCard
-	bucket      []*Bucket
-	closed      chan struct{}
+	conf           *ini.File
+	addToBucket    chan *JobCard
+	addToTTRBucket chan *JobCard
+	bucket         []*Bucket
+	TTRBuckets     []*Bucket
+	closed         chan struct{}
 }
 
 func init() {
 	Dper = &Dispatcher{
-		addToBucket: make(chan *JobCard),
-		closed:      make(chan struct{}),
+		addToBucket:    make(chan *JobCard),
+		addToTTRBucket: make(chan *JobCard),
+		closed:         make(chan struct{}),
 	}
 }
 
@@ -57,6 +60,9 @@ func (d *Dispatcher) Run() {
 					log.Error(err)
 				}
 			}
+		case card := <-d.addToTTRBucket:
+			sort.Sort(ByNum(d.TTRBuckets))
+			d.TTRBuckets[0].recvJob <- card
 		case <-gmq.notify:
 			log.Info("dispatcher notifies all bucket to close.")
 			close(d.closed)
@@ -82,10 +88,24 @@ func (d *Dispatcher) initBucket() error {
 			closed:          make(chan struct{}),
 		}
 
-		// 复位job数量
 		b.JobNum = GetBucketJobNum(b)
 		go b.run()
 		d.bucket = append(d.bucket, b)
+	}
+
+	for i := 0; i < n; i++ {
+		b := &Bucket{
+			Id:              "TTR:" + string(i+65),
+			JobNum:          0,
+			recvJob:         make(chan *JobCard),
+			addToReadyQueue: make(chan string),
+			resetTimerChan:  make(chan struct{}),
+			closed:          make(chan struct{}),
+		}
+
+		b.JobNum = GetBucketJobNum(b)
+		go b.run()
+		d.TTRBuckets = append(d.TTRBuckets, b)
 	}
 
 	return nil
