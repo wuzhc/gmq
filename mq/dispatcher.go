@@ -73,7 +73,7 @@ func (d *Dispatcher) Run() {
 
 // 初始化bucket
 func (d *Dispatcher) initBucket() error {
-	n := 3
+	n := 10
 	if n <= 0 {
 		return ErrBucketNum
 	}
@@ -93,7 +93,7 @@ func (d *Dispatcher) initBucket() error {
 		d.bucket = append(d.bucket, b)
 	}
 
-	for i := 0; i < n; i++ {
+	for i := 0; i < 3; i++ {
 		b := &Bucket{
 			Id:              "TTR:" + string(i+65),
 			JobNum:          0,
