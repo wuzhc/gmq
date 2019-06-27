@@ -21,7 +21,7 @@ func (s *Service) Push(j map[string]string, reply *string) error {
 		TTR:   TTR,
 	}
 
-	err := Dper.AddToJobPool(job)
+	err := gmq.dispatcher.AddToJobPool(job)
 	if err != nil {
 		*reply = err.Error()
 	} else {

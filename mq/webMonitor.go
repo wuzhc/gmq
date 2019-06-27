@@ -12,10 +12,8 @@ import (
 type WebMonitor struct {
 }
 
-var Wmor *WebMonitor
-
-func init() {
-	Wmor = &WebMonitor{}
+func NewWebMonitor() *WebMonitor {
+	return &WebMonitor{}
 }
 
 func (w *WebMonitor) Run() {
@@ -194,26 +192,6 @@ func (w *WebMonitor) getJobsByBucketKey(c *gin.Context) {
 	c.JSON(http.StatusOK, w.rspData(res))
 }
 
-func (w *WebMonitor) getStatusName(status string) string {
-	s, err := strconv.Atoi(status)
-	if err != nil {
-		return `<span class="layui-badge layui-bg-black">unknown</span>`
-	}
-	if s == JOB_STATUS_DELAY {
-		return `<span class="layui-badge layui-bg-orange">delay</span>`
-	}
-	if s == JOB_STATUS_READY {
-		return `<span class="layui-badge layui-bg-red">ready</span>`
-	}
-	if s == JOB_STATUS_RESERVED {
-		return `<span class="layui-badge layui-bg-blue">reserved</span>`
-	}
-	if s == JOB_STATUS_DETAULT {
-		return `<span class="layui-badge layui-bg-cyan">default</span>`
-	}
-	return `<span class="layui-badge layui-bg-black">delete</span>`
-}
-
 func (w *WebMonitor) getReadyQueueStat(c *gin.Context) {
 	var queues []string
 	var err error
@@ -253,7 +231,7 @@ func (w *WebMonitor) getBucketStat(c *gin.Context) {
 	}
 
 	var res []bucketInfo
-	buckets := Dper.bucket
+	buckets := gmq.dispatcher.bucket
 	sort.Sort(ById(buckets))
 	for k, b := range buckets {
 		res = append(res, bucketInfo{
@@ -265,6 +243,26 @@ func (w *WebMonitor) getBucketStat(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, w.rspData(res))
+}
+
+func (w *WebMonitor) getStatusName(status string) string {
+	s, err := strconv.Atoi(status)
+	if err != nil {
+		return `<span class="layui-badge layui-bg-black">unknown</span>`
+	}
+	if s == JOB_STATUS_DELAY {
+		return `<span class="layui-badge layui-bg-orange">delay</span>`
+	}
+	if s == JOB_STATUS_READY {
+		return `<span class="layui-badge layui-bg-red">ready</span>`
+	}
+	if s == JOB_STATUS_RESERVED {
+		return `<span class="layui-badge layui-bg-blue">reserved</span>`
+	}
+	if s == JOB_STATUS_DETAULT {
+		return `<span class="layui-badge layui-bg-cyan">default</span>`
+	}
+	return `<span class="layui-badge layui-bg-black">delete</span>`
 }
 
 func (w *WebMonitor) rspErr(msg interface{}) gin.H {

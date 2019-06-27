@@ -93,7 +93,7 @@ func (b *Bucket) run() {
 }
 
 func (b *Bucket) waitClose() {
-	<-Dper.closed
+	<-gmq.dispatcher.closed
 	b.wg.Wait()
 	log.Info(fmt.Sprintf("bucket:%v waiting for close...", b.Id))
 	time.Sleep(2)

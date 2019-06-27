@@ -122,7 +122,7 @@ func Pop(topics ...string) (map[string]string, error) {
 		return nil, err
 	}
 	if TTR > 0 {
-		Dper.addToTTRBucket <- &JobCard{
+		gmq.dispatcher.addToTTRBucket <- &JobCard{
 			id:    detail["id"],
 			delay: TTR + 3,
 			topic: detail["topic"],

@@ -5,8 +5,13 @@ import (
 	"gmq/logs"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
+
+	"gmq/utils"
+
+	"gopkg.in/ini.v1"
 )
 
 var (
@@ -15,17 +20,42 @@ var (
 )
 
 type Gmq struct {
-	running int
-	closed  chan struct{}
-	notify  chan struct{}
-	wg      sync.WaitGroup
+	running    int
+	closed     chan struct{}
+	notify     chan struct{}
+	cfg        *ini.File
+	wg         sync.WaitGroup
+	dispatcher *Dispatcher
+	webMonitor *WebMonitor
+	serv       IServer
 }
 
-func NewGmq() *Gmq {
+func NewGmq(cfg string) *Gmq {
 	gmq = &Gmq{
 		closed: make(chan struct{}),
 		notify: make(chan struct{}),
 	}
+
+	if res, err := utils.PathExists(cfg); !res {
+		if err != nil {
+			fmt.Printf("%s is not exists,errors:%s \n", cfg, err.Error())
+		} else {
+			fmt.Printf("%s is not exists \n", cfg)
+		}
+		os.Exit(1)
+	}
+
+	var err error
+	gmq.cfg, err = ini.Load(cfg)
+	if err != nil {
+		fmt.Printf("Fail to read file: %v \n", err)
+		os.Exit(1)
+	}
+
+	gmq.dispatcher = NewDispatcher()
+	gmq.webMonitor = NewWebMonitor()
+	gmq.serv = NewServ()
+
 	return gmq
 }
 
@@ -33,14 +63,44 @@ func (gmq *Gmq) Run() {
 	if gmq.running == 1 {
 		fmt.Println("running.")
 		return
-	} else {
-		gmq.running = 1
 	}
 
-	log = logs.NewDispatcher()
-	log.SetTarget(logs.TARGET_FILE, `{"filename":"xxx.log","level":2,"max_size":50000000,"rotate":true}`)
-	log.SetTarget(logs.TARGET_CONSOLE, "")
+	gmq.running = 1
+	gmq.initLogger()
+	gmq.registerSignal()
 
+	go gmq.dispatcher.Run() // job调度服务
+	go gmq.webMonitor.Run() // web监控服务
+	go gmq.serv.Run()       // rpc服务或http服务
+
+	<-gmq.closed
+	fmt.Println("Closed.")
+}
+
+func (gmq *Gmq) initLogger() {
+	log = logs.NewDispatcher()
+	logConf := gmq.cfg.Section("log")
+	filename := logConf.Key("filename").String()
+	level, _ := logConf.Key("level").Int()
+	rotate, _ := logConf.Key("rotate").Bool()
+	max_size, _ := logConf.Key("max_size").Int()
+	target_type := logConf.Key("target_type").String()
+
+	targets := strings.Split(target_type, ",")
+	for _, t := range targets {
+		if t == logs.TARGET_FILE {
+			conf := fmt.Sprintf(`{"filename":"%s","level":%d,"max_size":%d,"rotate":%v}`, filename, level, max_size, rotate)
+			log.SetTarget(logs.TARGET_FILE, conf)
+		} else if t == logs.TARGET_CONSOLE {
+			log.SetTarget(logs.TARGET_CONSOLE, "")
+		} else {
+			fmt.Println("Only support file or console handler")
+			os.Exit(1)
+		}
+	}
+}
+
+func (gmq *Gmq) registerSignal() {
 	// 无法捕获SIGKILL信号,不要使用kill -9 pid命令来杀死进程
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
@@ -51,11 +111,4 @@ func (gmq *Gmq) Run() {
 		gmq.wg.Wait()            // 等待goroutine安全退出
 		gmq.closed <- struct{}{} // 关闭整个服务
 	}()
-
-	go Dper.Run() // job调度服务
-	go Wmor.Run() // web监控服务
-	go Serv.Run() // rpc服务或http服务
-
-	<-gmq.closed
-	fmt.Println("Closed.")
 }

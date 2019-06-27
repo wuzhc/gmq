@@ -7,6 +7,6 @@ import (
 
 func main() {
 	runtime.GOMAXPROCS(8)
-	q := mq.NewGmq()
+	q := mq.NewGmq("conf.ini")
 	q.Run()
 }

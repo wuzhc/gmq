@@ -4,13 +4,11 @@ import (
 	"errors"
 	"sort"
 	"strconv"
-
-	"gopkg.in/ini.v1"
 )
 
 var (
-	Dper              *Dispatcher
 	ErrBucketNum      = errors.New("The number of buckets must be greater then 0")
+	ErrTTRBucketNum   = errors.New("The number of TTRBuckets must be greater then 0")
 	ErrDispacherNoRun = errors.New("Dispacher is not running")
 )
 
@@ -18,7 +16,6 @@ var (
 // 调度Job分配到bucket
 // 管理bucket
 type Dispatcher struct {
-	conf           *ini.File
 	addToBucket    chan *JobCard
 	addToTTRBucket chan *JobCard
 	bucket         []*Bucket
@@ -26,8 +23,8 @@ type Dispatcher struct {
 	closed         chan struct{}
 }
 
-func init() {
-	Dper = &Dispatcher{
+func NewDispatcher() *Dispatcher {
+	return &Dispatcher{
 		addToBucket:    make(chan *JobCard),
 		addToTTRBucket: make(chan *JobCard),
 		closed:         make(chan struct{}),
@@ -73,12 +70,16 @@ func (d *Dispatcher) Run() {
 
 // 初始化bucket
 func (d *Dispatcher) initBucket() error {
-	n := 10
-	if n <= 0 {
+	bucket_num, _ := gmq.cfg.Section("bucket").Key("num").Int()
+	if bucket_num == 0 {
 		return ErrBucketNum
 	}
+	TTRBucket_num, _ := gmq.cfg.Section("TTRBucket").Key("num").Int()
+	if TTRBucket_num == 0 {
+		return ErrTTRBucketNum
+	}
 
-	for i := 0; i < n; i++ {
+	for i := 0; i < bucket_num; i++ {
 		b := &Bucket{
 			Id:              strconv.Itoa(i),
 			JobNum:          0,
@@ -93,7 +94,7 @@ func (d *Dispatcher) initBucket() error {
 		d.bucket = append(d.bucket, b)
 	}
 
-	for i := 0; i < 3; i++ {
+	for i := 0; i < TTRBucket_num; i++ {
 		b := &Bucket{
 			Id:              "TTR:" + string(i+65),
 			JobNum:          0,
@@ -121,7 +122,6 @@ func (d *Dispatcher) AddToJobPool(j *Job) error {
 	}
 
 	d.addToBucket <- j.Card()
-
 	return nil
 }
 
