@@ -201,7 +201,7 @@ func RetrivalTimeoutJobs(b *Bucket) (jobIds []string, nextTime int, err error) {
 	defer conn.Close()
 
 	script := `
-		local jobIds = redis.call('zrangebyscore',KEYS[1], 0, ARGV[4], 'withscores', 'limit', 0, 50)
+		local jobIds = redis.call('zrangebyscore',KEYS[1], 0, ARGV[4], 'withscores', 'limit', 0, 200)
 		local res = {}
 		for k,jobId in ipairs(jobIds) do 
 			if k%2~=0 then
@@ -212,6 +212,8 @@ func RetrivalTimeoutJobs(b *Bucket) (jobIds []string, nextTime int, err error) {
 					if isDel == 1 then
 						table.insert(res, jobId)
 					end
+				else
+					redis.call('zrem',KEYS[1],jobId)
 				end
 			end
 		end
