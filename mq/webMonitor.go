@@ -96,16 +96,23 @@ func (w *WebMonitor) readyQueueList(c *gin.Context) {
 }
 
 func updateReadyQueueCache() error {
-	var queues interface{}
+	var records interface{}
 	var err error
 
-	queues, err = Redis.Do("KEYS", READY_QUEUE_KEY+"*")
-	if queues != nil {
-		Redis.Bool("DEL", READY_QUEUE_CACHE_KEY)
+	records, err = Redis.Do("KEYS", READY_QUEUE_KEY+"*")
+	if err != nil {
+		return err
+	}
+
+	queues := records.([]interface{})
+	Redis.Bool("DEL", READY_QUEUE_CACHE_KEY)
+	if len(queues) > 0 {
 		args := []interface{}{READY_QUEUE_CACHE_KEY}
-		args = append(args, queues.([]interface{})...)
+		args = append(args, queues...)
+		log.Debug(args...)
 		_, err = Redis.Bool("SADD", args...)
 	}
+
 	return err
 }
 
