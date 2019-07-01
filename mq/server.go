@@ -1,7 +1,11 @@
 package mq
 
+import (
+	"context"
+)
+
 type IServer interface {
-	Run()
+	Run(context.Context)
 }
 
 func NewServ() IServer {

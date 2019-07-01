@@ -1,10 +1,13 @@
 package mq
 
 import (
+	"context"
+	"fmt"
 	"gmq/utils"
 	"net/http"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -16,15 +19,18 @@ func NewWebMonitor() *WebMonitor {
 	return &WebMonitor{}
 }
 
-func (w *WebMonitor) Run() {
-	// defer gmq.wg.Done()
-	// gmq.wg.Add(1)
+func (w *WebMonitor) Run(ctx context.Context) {
+	defer gmq.wg.Done()
+	gmq.wg.Add(1)
 
 	if gmq.running == 0 {
 		return
 	}
 
-	r := gin.Default()
+	gin.SetMode(gin.ReleaseMode)
+
+	r := gin.New()
+	r.Use(Logger())
 	r.StaticFS("/static", http.Dir("static"))
 	r.LoadHTMLGlob("views/*")
 	r.GET("/", w.index)
@@ -35,10 +41,51 @@ func (w *WebMonitor) Run() {
 	r.GET("/readyQueueList", w.readyQueueList)
 	r.GET("/getReadyQueueStat", w.getReadyQueueStat)
 	r.GET("/getBucketStat", w.getBucketStat)
+	r.GET("/getTTRBucketStat", w.getTTRBucketStat)
 	r.GET("/getJobsByBucketKey", w.getJobsByBucketKey)
 	r.GET("/jobDetail", w.jobDetail)
 	r.GET("/test", w.test)
-	r.Run(":8000")
+	// r.Run(":8000")
+
+	serv := &http.Server{
+		Addr:    ":8000",
+		Handler: r,
+	}
+
+	go func() {
+		<-ctx.Done()
+		if err := serv.Shutdown(ctx); err != nil {
+			log.Error("webMonitor Shutdown:", err)
+		}
+		log.Info("webMonitor exist")
+	}()
+
+	if err := serv.ListenAndServe(); err != nil {
+		log.Error(fmt.Sprintf("listen: %s\n", err))
+	}
+}
+
+func Logger() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// 开始时间
+		start := time.Now()
+		// 处理请求
+		c.Next()
+		// 结束时间
+		end := time.Now()
+		//执行时间
+		latency := end.Sub(start)
+		path := c.Request.URL.Path
+		clientIP := c.ClientIP()
+		method := c.Request.Method
+		statusCode := c.Writer.Status()
+		log.Info(fmt.Sprintf("| %3d | %13v | %15s | %s  %s |",
+			statusCode,
+			latency,
+			clientIP,
+			method, path,
+		))
+	}
 }
 
 func (w *WebMonitor) index(c *gin.Context) {
@@ -239,6 +286,29 @@ func (w *WebMonitor) getBucketStat(c *gin.Context) {
 
 	var res []bucketInfo
 	buckets := gmq.dispatcher.bucket
+	sort.Sort(ById(buckets))
+	for k, b := range buckets {
+		res = append(res, bucketInfo{
+			Id:         k + 1,
+			BucketName: GetBucketKeyById(b.Id),
+			JobNum:     GetBucketJobNum(b),
+			NextTime:   utils.FormatTime(b.NextTime),
+		})
+	}
+
+	c.JSON(http.StatusOK, w.rspData(res))
+}
+
+func (w *WebMonitor) getTTRBucketStat(c *gin.Context) {
+	type bucketInfo struct {
+		Id         int    `json:"id"`
+		BucketName string `json:"bucket_name"`
+		JobNum     int    `json:"job_num"`
+		NextTime   string `json:"next_time"`
+	}
+
+	var res []bucketInfo
+	buckets := gmq.dispatcher.TTRBuckets
 	sort.Sort(ById(buckets))
 	for k, b := range buckets {
 		res = append(res, bucketInfo{

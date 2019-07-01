@@ -10,12 +10,18 @@
 <body>
     <div id="bucket" style="width: 1000px;height:400px;"></div>
     <div id="queue" style="width: 1000px;height:400px;"></div>
+    <div id="ttr_bucket" style="width: 1000px;height:400px;"></div>
     <script type="text/javascript">
     $(function(){
       // bucket 
       var bucket =echarts.init(document.getElementById('bucket'));
       bucket.showLoading();
       setInterval(getBucketInfo,3000)
+      
+      // ttr_bucket 
+      var ttr_bucket =echarts.init(document.getElementById('ttr_bucket'));
+      ttr_bucket.showLoading();
+      setInterval(getTTRBucketInfo,3000)
       
       // queue
       var queue = echarts.init(document.getElementById('queue'));
@@ -62,6 +68,51 @@
             // 使用刚指定的配置项和数据显示图表。
             bucket.hideLoading();
             bucket.setOption(option);
+          }
+        })  
+      }
+      
+      
+      function getTTRBucketInfo() {
+        $.ajax({
+          url:"/getTTRBucketStat",
+          dataType:"json",
+          success:function(res){
+            // 指定图表的配置项和数据
+            var name = []
+            var value = []
+            
+            if (res.data) {
+              $.each(res.data,function(k,v){
+                name.push(v.bucket_name)
+                value.push(v.job_num)
+              })  
+            }
+            
+            var option = {
+                title: {
+                    text: 'TTR bucket实时统计'
+                },
+                tooltip: {},
+                legend: {
+                    data:['未到期任务数量']
+                },
+                xAxis: {
+                    data: name
+                },
+                yAxis: {},
+                series: [{
+                    name: '未到期任务数量',
+                    type: 'bar',
+                    data: value
+                }]
+            };
+    
+            console.log(option)
+            
+            // 使用刚指定的配置项和数据显示图表。
+            ttr_bucket.hideLoading();
+            ttr_bucket.setOption(option);
           }
         })  
       }

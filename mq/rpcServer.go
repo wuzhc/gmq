@@ -1,6 +1,7 @@
 package mq
 
 import (
+	"context"
 	"net"
 	"net/rpc"
 	"net/rpc/jsonrpc"
@@ -43,16 +44,24 @@ func (s *Service) Ack(id string, reply *bool) (err error) {
 type RpcServer struct {
 }
 
-func (s *RpcServer) Run() {
+func (s *RpcServer) Run(ctx context.Context) {
 	rpc.Register(new(Service))
 	listener, err := net.Listen("tcp", ":9503")
 	if err != nil {
 		log.Error("listen error:", err)
+	} else {
+		defer listener.Close()
 	}
+
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			continue
+		}
+		select {
+		case <-ctx.Done():
+			return
+		default:
 		}
 		go jsonrpc.ServeConn(conn)
 	}

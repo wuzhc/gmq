@@ -1,9 +1,11 @@
 package mq
 
 import (
+	"context"
 	"errors"
 	"sort"
 	"strconv"
+	"sync"
 )
 
 var (
@@ -21,6 +23,7 @@ type Dispatcher struct {
 	bucket         []*Bucket
 	TTRBuckets     []*Bucket
 	closed         chan struct{}
+	wg             sync.WaitGroup
 }
 
 func NewDispatcher() *Dispatcher {
@@ -32,7 +35,7 @@ func NewDispatcher() *Dispatcher {
 }
 
 // job调度器,负责bucket分配
-func (d *Dispatcher) Run() {
+func (d *Dispatcher) Run(ctx context.Context) {
 	defer gmq.wg.Done()
 	gmq.wg.Add(1)
 
@@ -60,9 +63,10 @@ func (d *Dispatcher) Run() {
 		case card := <-d.addToTTRBucket:
 			sort.Sort(ByNum(d.TTRBuckets))
 			d.TTRBuckets[0].recvJob <- card
-		case <-gmq.notify:
+		case <-ctx.Done():
 			log.Info("dispatcher notifies all bucket to close.")
 			close(d.closed)
+			d.wg.Wait()
 			return
 		}
 	}

@@ -26,7 +26,6 @@ type Bucket struct {
 	addToReadyQueue chan string
 	resetTimerChan  chan struct{}
 	closed          chan struct{}
-	wg              sync.WaitGroup
 }
 
 type ByNum []*Bucket
@@ -48,14 +47,13 @@ func (b *Bucket) Key() string {
 }
 
 func (b *Bucket) run() {
-	defer gmq.wg.Done()
+	defer gmq.dispatcher.wg.Done()
 	defer func() {
 		log.Error(fmt.Sprintf("bucket:%v closed.", b.Id))
 	}()
-	gmq.wg.Add(1)
+	gmq.dispatcher.wg.Add(1)
 
 	go b.retrievalTimeoutJobs()
-	go b.waitClose()
 
 	for {
 		select {
@@ -86,27 +84,17 @@ func (b *Bucket) run() {
 			}
 			b.JobNum--
 		case <-b.closed:
-			// 等待dispatcher和timer优先退出
+			// 一当dispatcher发出退出信号,先停止定时扫描器,然后再退出bucket
 			return
 		}
 	}
 }
 
-func (b *Bucket) waitClose() {
-	<-gmq.dispatcher.closed
-	b.wg.Wait()
-	log.Info(fmt.Sprintf("bucket:%v waiting for close...", b.Id))
-	time.Sleep(2)
-	b.closed <- struct{}{}
-}
-
 // 检索到时任务
 func (b *Bucket) retrievalTimeoutJobs() {
-	defer b.wg.Done()
 	defer func() {
 		log.Error(fmt.Sprintf("retrievalTimeoutJobs:%v closed.", b.Id))
 	}()
-	b.wg.Add(1)
 
 	var (
 		duration = timerDefaultDuration
@@ -151,7 +139,8 @@ func (b *Bucket) retrievalTimeoutJobs() {
 
 			b.NextTime = time.Now().Add(timerDefaultDuration)
 			timer.Reset(timerDefaultDuration)
-		case <-gmq.notify:
+		case <-gmq.dispatcher.closed:
+			b.closed <- struct{}{}
 			return
 		}
 	}

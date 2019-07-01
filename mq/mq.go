@@ -1,6 +1,7 @@
 package mq
 
 import (
+	"context"
 	"fmt"
 	"gmq/logs"
 	"os"
@@ -22,7 +23,6 @@ var (
 type Gmq struct {
 	running    int
 	closed     chan struct{}
-	notify     chan struct{}
 	cfg        *ini.File
 	wg         sync.WaitGroup
 	dispatcher *Dispatcher
@@ -33,7 +33,6 @@ type Gmq struct {
 func NewGmq(cfg string) *Gmq {
 	gmq = &Gmq{
 		closed: make(chan struct{}),
-		notify: make(chan struct{}),
 	}
 
 	if res, err := utils.PathExists(cfg); !res {
@@ -63,18 +62,37 @@ func (gmq *Gmq) Run() {
 	if gmq.running == 1 {
 		fmt.Println("running.")
 		return
+	} else {
+		defer Redis.Pool.Close()
 	}
 
 	gmq.running = 1
 	gmq.initLogger()
-	gmq.registerSignal()
+	gmq.welcome()
 
-	go gmq.dispatcher.Run() // job调度服务
-	go gmq.webMonitor.Run() // web监控服务
-	go gmq.serv.Run()       // rpc服务或http服务
+	ctx, cannel := context.WithCancel(context.Background())
+	defer cannel()
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	go func() {
+		<-sigs
+		cannel()
+		gmq.wg.Wait()            // 等待各个服务退出
+		gmq.closed <- struct{}{} // 关闭整个服务
+		gmq.running = 0
+	}()
+
+	go gmq.dispatcher.Run(ctx) // job调度服务
+	go gmq.webMonitor.Run(ctx) // web监控服务
+	go gmq.serv.Run(ctx)       // rpc服务或http服务
 
 	<-gmq.closed
 	fmt.Println("Closed.")
+}
+
+func (gmq *Gmq) welcome() {
+	fmt.Println("Welcome to use gmq, enjoy it")
 }
 
 func (gmq *Gmq) initLogger() {
@@ -98,17 +116,4 @@ func (gmq *Gmq) initLogger() {
 			os.Exit(1)
 		}
 	}
-}
-
-func (gmq *Gmq) registerSignal() {
-	// 无法捕获SIGKILL信号,不要使用kill -9 pid命令来杀死进程
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-	go func() {
-		<-sigs
-		gmq.running = 0
-		close(gmq.notify)        // 通知其他goroutine退出
-		gmq.wg.Wait()            // 等待goroutine安全退出
-		gmq.closed <- struct{}{} // 关闭整个服务
-	}()
 }
