@@ -48,12 +48,9 @@ func (b *Bucket) Key() string {
 
 func (b *Bucket) run() {
 	defer gmq.dispatcher.wg.Done()
-	defer func() {
-		log.Error(fmt.Sprintf("bucket:%v closed.", b.Id))
-	}()
 	gmq.dispatcher.wg.Add(1)
 
-	go b.retrievalTimeoutJobs()
+	go b.startTimer()
 
 	for {
 		select {
@@ -84,18 +81,14 @@ func (b *Bucket) run() {
 			}
 			b.JobNum--
 		case <-b.closed:
-			// 一当dispatcher发出退出信号,先停止定时扫描器,然后再退出bucket
+			// 接收timer退出通知
 			return
 		}
 	}
 }
 
-// 检索到时任务
-func (b *Bucket) retrievalTimeoutJobs() {
-	defer func() {
-		log.Error(fmt.Sprintf("retrievalTimeoutJobs:%v closed.", b.Id))
-	}()
-
+// 定时器周期性检索到期任务
+func (b *Bucket) startTimer() {
 	var (
 		duration = timerDefaultDuration
 		timer    = time.NewTimer(duration)

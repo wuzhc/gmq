@@ -156,7 +156,6 @@ func updateReadyQueueCache() error {
 	if len(queues) > 0 {
 		args := []interface{}{READY_QUEUE_CACHE_KEY}
 		args = append(args, queues...)
-		log.Debug(args...)
 		_, err = Redis.Bool("SADD", args...)
 	}
 

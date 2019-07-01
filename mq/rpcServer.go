@@ -60,6 +60,7 @@ func (s *RpcServer) Run(ctx context.Context) {
 		}
 		select {
 		case <-ctx.Done():
+			log.Info("rpcServer exit")
 			return
 		default:
 		}
