@@ -20,26 +20,45 @@ const (
 )
 
 func init() {
-	Redis = &RedisDB{
-		Pool: &redis.Pool{
-			MaxIdle:     30,
-			MaxActive:   10000,
-			IdleTimeout: 240 * time.Second,
-			Wait:        true,
-			Dial: func() (redis.Conn, error) {
-				c, err := redis.Dial("tcp", "127.0.0.1:6379", redis.DialPassword(""))
-				if err != nil {
-					return nil, err
-				}
-				return c, nil
-			},
-			TestOnBorrow: func(c redis.Conn, t time.Time) error {
-				if time.Since(t) < time.Minute {
-					return nil
-				}
-				_, err := c.Do("PING")
-				return err
-			},
+	Redis = &RedisDB{}
+}
+
+func (db *RedisDB) InitPool() {
+	host := gmq.cfg.Section("redis").Key("host").String()
+	if len(host) == 0 {
+		host = "127.0.0.1"
+	}
+	port := gmq.cfg.Section("redis").Key("port").String()
+	if len(port) == 0 {
+		port = "6379"
+	}
+	maxIdle, _ := gmq.cfg.Section("redis").Key("max_idle").Int()
+	if maxIdle <= 0 {
+		maxIdle = 2
+	}
+	maxActive, _ := gmq.cfg.Section("redis").Key("max_active").Int()
+	if maxActive <= 0 {
+		maxActive = 3000
+	}
+
+	db.Pool = &redis.Pool{
+		MaxIdle:     maxIdle,
+		MaxActive:   maxActive,
+		IdleTimeout: 240 * time.Second,
+		Wait:        true,
+		Dial: func() (redis.Conn, error) {
+			c, err := redis.Dial("tcp", host+":"+port, redis.DialPassword(""))
+			if err != nil {
+				return nil, err
+			}
+			return c, nil
+		},
+		TestOnBorrow: func(c redis.Conn, t time.Time) error {
+			if time.Since(t) < time.Minute {
+				return nil
+			}
+			_, err := c.Do("PING")
+			return err
 		},
 	}
 }

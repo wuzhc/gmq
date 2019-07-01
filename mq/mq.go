@@ -62,12 +62,12 @@ func (gmq *Gmq) Run() {
 	if gmq.running == 1 {
 		fmt.Println("running.")
 		return
-	} else {
-		defer Redis.Pool.Close()
 	}
 
 	gmq.running = 1
 	gmq.initLogger()
+	gmq.initRedisPool()
+	defer Redis.Pool.Close()
 	gmq.welcome()
 
 	ctx, cannel := context.WithCancel(context.Background())
@@ -116,4 +116,8 @@ func (gmq *Gmq) initLogger() {
 			os.Exit(1)
 		}
 	}
+}
+
+func (gmq *Gmq) initRedisPool() {
+	Redis.InitPool()
 }
