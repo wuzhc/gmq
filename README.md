@@ -10,7 +10,7 @@
 	- `timer`的扫描时钟由`bucket`中下个`job`到期时间决定,而不是每秒扫描一次
 
 ## 2. gmq流程图如下:
-![一个不规范的流程图](../images/project/gmq流程图.png)
+![一个不规范的流程图](https://github.com/wuzhc/zcnote/raw/master/images/project/gmq%E6%B5%81%E7%A8%8B%E5%9B%BE.png)
 
 ### 2.1 延迟时间delay
 - 当job.delay>0时,job会被分配到bucket中,bucket会有周期性扫描到期job,如果到期,job会被bucket移到`ready queue`,等待被消费
@@ -26,7 +26,7 @@
 
 ## 3. web监控
 `gmq`提供了一个简单web监控平台,方便查看当前堆积任务数以及运行情况,默认监听端口为`9503`,例如:http://127.0.0.1:9503, 界面如下:
-![](../images/project/gmq监控.png)
+![](https://github.com/wuzhc/zcnote/raw/master/images/project/gmq%E7%9B%91%E6%8E%A7.png)
 
 ## 4. 应用场景
 - 延迟任务
@@ -67,13 +67,13 @@ tail -f gmq.log
 ### 一条消息结构
 ```json
 {
-    "id": "xxxx",	// 任务id,这个必须是一个唯一值,将作为redis的缓存键
-    "topic": "xxx", // topic是一组job的分类名,消费者将订阅topic来消费该分类下的job
-    "body": "xxx",  // 消息内容
-    "delay": "111", // 延迟时间,单位秒
-    "TTR": "11111", // 执行超时时间,单位秒
-    "status": 1,    // job执行状态,该字段由gmq生成
-    "consumeNum":1, // 被消费的次数,主要记录TTR>0时,被重复消费的次数,该字段由gmq生成
+    "id": "xxxx",	# 任务id,这个必须是一个唯一值,将作为redis的缓存键
+    "topic": "xxx",  # topic是一组job的分类名,消费者将订阅topic来消费该分类下的job
+    "body": "xxx",   # 消息内容
+    "delay": "111",  # 延迟时间,单位秒
+    "TTR": "11111",  # 执行超时时间,单位秒
+    "status": 1,     # job执行状态,该字段由gmq生成
+    "consumeNum":1,  # 被消费的次数,主要记录TTR>0时,被重复消费的次数,该字段由gmq生成
 }
 ```
 
@@ -126,11 +126,11 @@ $data = [
 
 ### 7.1 安全退出
 如果强行中止`gmq`的运行,可能会导致一些数据丢失,例如下面一个例子:  
-![gmq之timer定时器](../images/project/gmq之timer定时器.png)  
+![gmq之timer定时器](https://github.com/wuzhc/zcnote/raw/master/images/project/gmq%E4%B9%8Btimer%E5%AE%9A%E6%97%B6%E5%99%A8.png)  
 如果发生上面的情况,就会出现job不在`bucket`中,也不在`ready queue`,这就出现了job丢失的情况,而且将没有任何机会去删除`job pool`中已丢失的job,长久之后`job pool`可能会堆积很多的已丢失job的元数据;所以安全退出需要在接收到退出信号时,应该等待所有`goroutine`处理完手中的事情,然后再退出
 
 ####  7.1.1 `gmq`退出流程
-![gmq安全退出.png](../images/project/gmq安全退出.png)  
+![gmq安全退出.png](https://github.com/wuzhc/zcnote/blob/master/images/project/gmq%E5%AE%89%E5%85%A8%E9%80%80%E5%87%BA.png)  
 首先`gmq`通过context传递关闭信号给`dispatcher`,`dispatcher`接收到信号会关闭`dispatcher.closed`,每个`bucket`会收到`close`信号,然后先退出`timer`检索,再退出`bucket`,`dispatcher`等待所有bucket退出后,然后退出
 
 `dispatcher`退出顺序流程: `timer` -> `bucket` -> `dispatcher`
