@@ -65,7 +65,7 @@ tail -f gmq.log
 ## 6. 使用
 目前只实现python,go,php语言的客户端的demo
 ### 一条消息结构
-```json
+```bash
 {
     "id": "xxxx",	# 任务id,这个必须是一个唯一值,将作为redis的缓存键
     "topic": "xxx",  # topic是一组job的分类名,消费者将订阅topic来消费该分类下的job
