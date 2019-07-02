@@ -1,3 +1,7 @@
 xxx.log
 mq/test.lua
 gmq
+nohup.out
+gmq.pid
+gmq.log
+.gmq.out

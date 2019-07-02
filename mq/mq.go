@@ -64,24 +64,14 @@ func (gmq *Gmq) Run() {
 		return
 	}
 
-	gmq.running = 1
-	gmq.initLogger()
-	gmq.initRedisPool()
-	defer Redis.Pool.Close()
-	gmq.welcome()
-
 	ctx, cannel := context.WithCancel(context.Background())
 	defer cannel()
 
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-	go func() {
-		<-sigs
-		cannel()
-		gmq.wg.Wait()            // 等待各个服务退出
-		gmq.closed <- struct{}{} // 关闭整个服务
-		gmq.running = 0
-	}()
+	gmq.running = 1
+	gmq.initLogger()
+	gmq.initRedisPool()
+	gmq.initSignalHandler(cannel)
+	gmq.welcome()
 
 	go gmq.dispatcher.Run(ctx) // job调度服务
 	go gmq.webMonitor.Run(ctx) // web监控服务
@@ -120,4 +110,17 @@ func (gmq *Gmq) initLogger() {
 
 func (gmq *Gmq) initRedisPool() {
 	Redis.InitPool()
+}
+
+func (gmq *Gmq) initSignalHandler(cannel context.CancelFunc) {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	go func() {
+		<-sigs
+		cannel()                 // 通知各个服务退出
+		gmq.wg.Wait()            // 等待各个服务退出
+		gmq.closed <- struct{}{} // 关闭整个服务
+		Redis.Pool.Close()       // 关闭redis连接池
+		gmq.running = 0
+	}()
 }

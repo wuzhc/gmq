@@ -61,7 +61,8 @@ func (w *WebMonitor) Run(ctx context.Context) {
 	}()
 
 	if err := serv.ListenAndServe(); err != nil {
-		log.Error(fmt.Sprintf("listen: %s\n", err))
+		// log.Error(fmt.Sprintf("listen: %s\n", err))
+		return
 	}
 }
 
@@ -95,7 +96,7 @@ func (w *WebMonitor) index(c *gin.Context) {
 	}
 
 	c.HTML(http.StatusOK, "entry.html", gin.H{
-		"siteName":      "web监控管理",
+		"siteName":      "gmq监控管理",
 		"version":       "v1.0",
 		"loginUserName": "wuzhc",
 	})
