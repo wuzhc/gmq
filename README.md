@@ -63,7 +63,7 @@ python consumer.py
 ### 一条消息结构
 ```
 {
-    "id": "xxxx",	 # 任务id,这个必须是一个唯一值,将作为redis的缓存键
+    "id": "xxxx",	# 任务id,这个必须是一个唯一值,将作为redis的缓存键
     "topic": "xxx",  # topic是一组job的分类名,消费者将订阅topic来消费该分类下的job
     "body": "xxx",   # 消息内容
     "delay": "111",  # 延迟时间,单位秒
