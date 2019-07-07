@@ -1,0 +1,85 @@
+{
+	"comment": "",
+	"ignore": "test",
+	"package": [
+		{
+			"checksumSHA1": "qlEzrgKgIkh7y0ePm9BNo1cNdXo=",
+			"path": "github.com/gin-contrib/sse",
+			"revision": "54d8467d122d380a14768b6b4e5cd7ca4755938f",
+			"revisionTime": "2019-06-02T15:02:53Z"
+		},
+		{
+			"checksumSHA1": "giewB2MsF6+uckDdN/x39zdnJZI=",
+			"path": "github.com/gin-gonic/gin",
+			"revision": "75b9d2bed75a2d96198738ac3974211924dbde6c",
+			"revisionTime": "2019-06-12T13:07:15Z"
+		},
+		{
+			"checksumSHA1": "SohLqPWFKw8qKTCx4tMpG9bSDPI=",
+			"path": "github.com/gin-gonic/gin/binding",
+			"revision": "75b9d2bed75a2d96198738ac3974211924dbde6c",
+			"revisionTime": "2019-06-12T13:07:15Z"
+		},
+		{
+			"checksumSHA1": "rST0S8cuVbM57VmJhWXhKNUkKTc=",
+			"path": "github.com/gin-gonic/gin/internal/json",
+			"revision": "75b9d2bed75a2d96198738ac3974211924dbde6c",
+			"revisionTime": "2019-06-12T13:07:15Z"
+		},
+		{
+			"checksumSHA1": "4XLWNQHHCyHJCCROC4UXSn7U1OM=",
+			"path": "github.com/gin-gonic/gin/render",
+			"revision": "75b9d2bed75a2d96198738ac3974211924dbde6c",
+			"revisionTime": "2019-06-12T13:07:15Z"
+		},
+		{
+			"checksumSHA1": "CGj8VcI/CpzxaNqlqpEVM7qElD4=",
+			"path": "github.com/golang/protobuf/proto",
+			"revision": "b285ee9cfc6c881bb20c0d8dc73370ea9b9ec90f",
+			"revisionTime": "2019-05-17T06:12:10Z"
+		},
+		{
+			"checksumSHA1": "cyejI0bcXBrdCmmbBNVzMNx7I80=",
+			"path": "github.com/gomodule/redigo/redis",
+			"revision": "e8fc0692a7e26a05b06517348ed466349062eb47",
+			"revisionTime": "2018-10-26T00:15:55Z"
+		},
+		{
+			"checksumSHA1": "74gCzvJiE6bXX3i4vIVCYhffDHc=",
+			"path": "github.com/mattn/go-isatty",
+			"revision": "1311e847b0cb909da63b5fecfb5370aa66236465",
+			"revisionTime": "2019-05-22T01:25:13Z"
+		},
+		{
+			"checksumSHA1": "h6qyWPjX/+K8Nij0ZllZ6tRBCj4=",
+			"path": "github.com/ugorji/go/codec",
+			"revision": "7865e43e776b01f708871ba4d37a9ed1d3353bfd",
+			"revisionTime": "2019-06-16T12:05:23Z"
+		},
+		{
+			"checksumSHA1": "syjL4XkD2RVPfuYnxoRggCmpY/k=",
+			"path": "golang.org/x/sys/unix",
+			"revision": "15dcb6c0061f497a3f66e3ea034b629c6dd4d99e",
+			"revisionTime": "2019-06-15T12:11:14Z"
+		},
+		{
+			"checksumSHA1": "P/k5ZGf0lEBgpKgkwy++F7K1PSg=",
+			"path": "gopkg.in/go-playground/validator.v8",
+			"revision": "5f1438d3fca68893a817e4a66806cea46a9e4ebf",
+			"revisionTime": "2017-07-30T05:02:35Z"
+		},
+		{
+			"checksumSHA1": "s4yxtZss88Rf9psrJz9S1EAy6vI=",
+			"path": "gopkg.in/ini.v1",
+			"revision": "c85607071cf08ca1adaf48319cd1aa322e81d8c1",
+			"revisionTime": "2019-02-17T19:36:56Z"
+		},
+		{
+			"checksumSHA1": "ZSWoOPUNRr5+3dhkLK3C4cZAQPk=",
+			"path": "gopkg.in/yaml.v2",
+			"revision": "5420a8b6744d3b0345ab293f6fcba19c978f1183",
+			"revisionTime": "2018-03-28T19:50:20Z"
+		}
+	],
+	"rootPath": "gmq"
+}
