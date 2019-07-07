@@ -9,37 +9,18 @@
 	-  `timer`每次扫描`bucket`到期`job`时,会一次性返回多个到期`job`,而不是每次只返回一个`job`
 	- `timer`的扫描时钟由`bucket`中下个`job`到期时间决定,而不是每秒扫描一次
 
-## 2. gmq流程图如下:
-![一个不规范的流程图](https://github.com/wuzhc/zcnote/raw/master/images/project/gmq%E6%B5%81%E7%A8%8B%E5%9B%BE.png)
-
-### 2.1 延迟时间delay
-- 当job.delay>0时,job会被分配到bucket中,bucket会有周期性扫描到期job,如果到期,job会被bucket移到`ready queue`,等待被消费
-- 当job.delay=0时,job会直接加到`ready queue`,等待被消费
-
-### 2.2 执行超时时间TTR
-参考第一个图的流程,当job被消费者读取后,如果`job.TTR>0`,即job设置了执行超时时间,那么job会在读取后会被添加到TTRBucket(专门存放设置了超时时间的job),并且设置`job.delay = job.TTR`,如果在TTR时间内没有得到消费者ack确认然后删除job,job将在TTR时间之后添加到`ready queue`,然后再次被消费(如果消费者在TTR时间之后才请求ack,会得到失败的响应)
-
-### 2.3 确认机制
-主要和TTR的设置有关系,确认机制可以分为两种:
-- 当job.TTR=0时,消费者`pop`出job时,即会自动删除`job pool`中的job元数据
-- 当job.TTR>0时,即job执行超时时间,这个时间是指用户`pop`出job时开始到用户`ack`确认删除结束这段时间,如果在这段时间没有`ACK`,job会被再次加入到`ready queue`,然后再次被消费,只有用户调用了`ACK`,才会去删除`job pool`中job元数据
-
-## 3. web监控
-`gmq`提供了一个简单web监控平台,方便查看当前堆积任务数以及运行情况,默认监听端口为`9503`,例如:http://127.0.0.1:9503, 界面如下:
-![](https://github.com/wuzhc/zcnote/raw/master/images/project/gmq%E7%9B%91%E6%8E%A7.png)
-
-## 4. 应用场景
+## 2. 应用场景
 - 延迟任务
     - 延迟任务,例如用户下订单一直处于未支付状态，半个小时候自动关闭订单
 - 异步任务
     - 异步任务,一般用于耗时操作,例如群发邮件等批量操作
 - 超时任务
-    - 规定时间内`(TTR)`没有执行完毕或程序被意外中断,以致于没有反馈ack给gmq,则gmq会在TTR之后将job重新加到队列然后再次被消费,一般用于数据比较敏感,不容丢失的
+    - 规定时间内`(TTR)`没有执行完毕或程序被意外中断,则消息重新回到队列再次被消费,一般用于数据比较敏感,不容丢失的
 - 优先级任务
-    - 当多个任务同时产生时,按照任务设定等级优先被消费,例如a,b两种类型的job,当有a类型job时优先消费,没有了再消费b类型job
+    - 当多个任务同时产生时,按照任务设定等级优先被消费,例如a,b两种类型的job,优秀消费a,然后再消费b
     
-## 5. 安装
-### 5.1 源码运行
+## 3. 安装
+### 3.1 源码运行
 配置文件位于`gmq/conf.ini`,可以根据自己项目需求修改配置
 ```bash
 git clone https://github.com/wuzhc/gmq.git
@@ -49,25 +30,40 @@ govendor sync
 go run main.go
 # go build # 可编译成可执行文件
 ```
-### 5.2 执行文件运行
+### 3.2 执行文件运行
 ```bash
 # 启动
 ./gmq start
 # 停止
 ./gmq stop
 
-# 守护进程模式启动
+# 守护进程模式启动,不输出日志到console
 nohup ./gmq start >/dev/null 2>&1  &
 # 守护进程模式下查看日志输出(配置文件conf.ini需要设置target_type=file,filename=gmq.log)
 tail -f gmq.log
 ```
 
-## 6. 使用
-目前只实现python,go,php语言的客户端的demo
-### 一条消息结构
+## 4. 客户端
+目前只实现python,go,php语言的客户端的demo,参考:[https://github.com/wuzhc/demo/tree/master/mq](https://github.com/wuzhc/demo/tree/master/mq)
+### 运行
 ```bash
+# php
+# 生产者
+php producer.php
+# 消费者
+php consumer.php
+
+# python
+# 生产者
+python producer.py
+# 消费者
+python consumer.py
+```
+
+### 一条消息结构
+```
 {
-    "id": "xxxx",    # 任务id,这个必须是一个唯一值,将作为redis的缓存键
+    "id": "xxxx",	 # 任务id,这个必须是一个唯一值,将作为redis的缓存键
     "topic": "xxx",  # topic是一组job的分类名,消费者将订阅topic来消费该分类下的job
     "body": "xxx",   # 消息内容
     "delay": "111",  # 延迟时间,单位秒
@@ -121,6 +117,26 @@ $data = [
     ];
 ```
 
+## 5. gmq流程图如下:
+![一个不规范的流程图](https://github.com/wuzhc/zcnote/raw/master/images/project/gmq%E6%B5%81%E7%A8%8B%E5%9B%BE.png)
+
+### 5.1 延迟时间delay
+- 当job.delay>0时,job会被分配到bucket中,bucket会有周期性扫描到期job,如果到期,job会被bucket移到`ready queue`,等待被消费
+- 当job.delay=0时,job会直接加到`ready queue`,等待被消费
+
+### 5.2 执行超时时间TTR
+参考第一个图的流程,当job被消费者读取后,如果`job.TTR>0`,即job设置了执行超时时间,那么job会在读取后会被添加到TTRBucket(专门存放设置了超时时间的job),并且设置`job.delay = job.TTR`,如果在TTR时间内没有得到消费者ack确认然后删除job,job将在TTR时间之后添加到`ready queue`,然后再次被消费(如果消费者在TTR时间之后才请求ack,会得到失败的响应)
+
+### 5.3 确认机制
+主要和TTR的设置有关系,确认机制可以分为两种:
+- 当job.TTR=0时,消费者`pop`出job时,即会自动删除`job pool`中的job元数据
+- 当job.TTR>0时,即job执行超时时间,这个时间是指用户`pop`出job时开始到用户`ack`确认删除结束这段时间,如果在这段时间没有`ACK`,job会被再次加入到`ready queue`,然后再次被消费,只有用户调用了`ACK`,才会去删除`job pool`中job元数据
+
+## 6. web监控
+`gmq`提供了一个简单web监控平台(后期会提供根据job.Id追踪消息的功能),方便查看当前堆积任务数,默认监听端口为`8000`,例如:http://127.0.0.1:8000, 界面如下:
+![](https://github.com/wuzhc/zcnote/raw/master/images/project/gmq%E7%9B%91%E6%8E%A7.png)
+*后台模板来源于https://github.com/george518/PPGo_Job*
+
 ## 7. 遇到问题
 以下是开发遇到的问题,以及一些粗糙的解决方案
 
@@ -130,7 +146,7 @@ $data = [
 如果发生上面的情况,就会出现job不在`bucket`中,也不在`ready queue`,这就出现了job丢失的情况,而且将没有任何机会去删除`job pool`中已丢失的job,长久之后`job pool`可能会堆积很多的已丢失job的元数据;所以安全退出需要在接收到退出信号时,应该等待所有`goroutine`处理完手中的事情,然后再退出
 
 ####  7.1.1 `gmq`退出流程
-![gmq安全退出.png](https://github.com/wuzhc/zcnote/blob/master/images/project/gmq%E5%AE%89%E5%85%A8%E9%80%80%E5%87%BA.png)  
+![gmq安全退出.png](https://github.com/wuzhc/zcnote/raw/master/images/project/gmq%E5%AE%89%E5%85%A8%E9%80%80%E5%87%BA.png)  
 首先`gmq`通过context传递关闭信号给`dispatcher`,`dispatcher`接收到信号会关闭`dispatcher.closed`,每个`bucket`会收到`close`信号,然后先退出`timer`检索,再退出`bucket`,`dispatcher`等待所有bucket退出后,然后退出
 
 `dispatcher`退出顺序流程: `timer` -> `bucket` -> `dispatcher`
@@ -142,7 +158,6 @@ $data = [
 - 1 对应SIGHUP
 - 2 对应SIGINT
 - 信号参考[https://www.jianshu.com/p/5729fc095b2a](https://www.jianshu.com/p/5729fc095b2a)  
-
 
 ### 7.2 智能定时器
 - 每一个`bucket`都会维护一个`timer`,不同于有赞设计,`timer`不是每秒轮询一次,而是根据`bucket`下一个job到期时间来设置`timer`的定时时间 ,这样的目的在于如果`bucket`没有job或job到期时间要很久才会发生,就可以减少不必要的轮询;
