@@ -23,12 +23,13 @@
 ### 3.1 源码运行
 配置文件位于`gmq/conf.ini`,可以根据自己项目需求修改配置
 ```bash
+cd $GOPATH/src # 进入gopath/src目录
 git clone https://github.com/wuzhc/gmq.git
 cd gmq
 go get -u -v github.com/kardianos/govendor # 如果有就不需要安装了
-govendor sync
-go run main.go
-# go build # 可编译成可执行文件
+govendor sync -v # 如果很慢,可能需要翻墙
+go run main.go start
+# go build # 编译成可执行文件
 ```
 ### 3.2 执行文件运行
 ```bash
