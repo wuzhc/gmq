@@ -29,10 +29,12 @@ cd gmq
 go get -u -v github.com/kardianos/govendor # 如果有就不需要安装了
 govendor sync -v # 如果很慢,可能需要翻墙
 go run main.go start
-# go build # 编译成可执行文件
 ```
 ### 3.2 执行文件运行
 ```bash
+cd $GOPATH/src/gmq
+# 编译成可执行文件
+go build 
 # 启动
 ./gmq start
 # 停止
