@@ -18,23 +18,40 @@
     - 规定时间内`(TTR)`没有执行完毕或程序被意外中断,则消息重新回到队列再次被消费,一般用于数据比较敏感,不容丢失的
 - 优先级任务
     - 当多个任务同时产生时,按照任务设定等级优先被消费,例如a,b两种类型的job,优秀消费a,然后再消费b
-    
-## 3. 安装
-### 3.1 源码运行
+
+## 3. gmq原理
+![gmq流程图](https://github.com/wuzhc/zcnote/raw/master/images/project/gmq%E6%B5%81%E7%A8%8B%E5%9B%BE.png)
+
+### 3.1 核心概念
+- `dispatcher`任务调度器,负责将`job`分配到`bucket`或直接推送到`ready queue`
+- `bucket`任务桶,用于存放延迟任务;每个`bucket`会维护一个`timer`定时器,然后将到期的`job`推送到`ready queue`
+- `ready queue`存放已准备好的`job`,等待被`consumer`消费
+
+### 3.2 延迟时间delay
+- 当job.delay>0时,job会被分配到bucket中,bucket会有周期性扫描到期job,如果到期,job会被bucket移到`ready queue`,等待被消费
+- 当job.delay=0时,job会直接加到`ready queue`,等待被消费
+
+### 3.3 执行超时时间TTR
+参考第一个图的流程,当job被消费者读取后,如果`job.TTR>0`,即job设置了执行超时时间,那么job会在读取后会被添加到TTRBucket(专门存放设置了超时时间的job),并且设置`job.delay = job.TTR`,如果在TTR时间内没有得到消费者ack确认然后删除job,job将在TTR时间之后添加到`ready queue`,然后再次被消费(如果消费者在TTR时间之后才请求ack,会得到失败的响应)
+
+### 3.3 确认机制
+主要和TTR的设置有关系,确认机制可以分为两种:
+- 当job.TTR=0时,消费者`pop`出job时,即会自动删除`job pool`中的job元数据
+- 当job.TTR>0时,即job执行超时时间,这个时间是指用户`pop`出job时开始到用户`ack`确认删除结束这段时间,如果在这段时间没有`ACK`,job会被再次加入到`ready queue`,然后再次被消费,只有用户调用了`ACK`,才会去删除`job pool`中job元数据
+  
+## 4. 安装
+### 4.1 源码运行
 配置文件位于`gmq/conf.ini`,可以根据自己项目需求修改配置
 ```bash
-cd $GOPATH/src # 进入gopath/src目录
 git clone https://github.com/wuzhc/gmq.git
 cd gmq
 go get -u -v github.com/kardianos/govendor # 如果有就不需要安装了
-govendor sync -v # 如果很慢,可能需要翻墙
-go run main.go start
+govendor sync
+go run main.go
+# go build # 可编译成可执行文件
 ```
 ### 3.2 执行文件运行
 ```bash
-cd $GOPATH/src/gmq
-# 编译成可执行文件
-go build 
 # 启动
 ./gmq start
 # 停止
@@ -46,7 +63,7 @@ nohup ./gmq start >/dev/null 2>&1  &
 tail -f gmq.log
 ```
 
-## 4. 客户端
+## 5. 客户端
 目前只实现python,go,php语言的客户端的demo,参考:[https://github.com/wuzhc/demo/tree/master/mq](https://github.com/wuzhc/demo/tree/master/mq)
 ### 运行
 ```bash
@@ -66,7 +83,7 @@ python consumer.py
 ### 一条消息结构
 ```
 {
-    "id": "xxxx",	# 任务id,这个必须是一个唯一值,将作为redis的缓存键
+    "id": "xxxx",	 # 任务id,这个必须是一个唯一值,将作为redis的缓存键
     "topic": "xxx",  # topic是一组job的分类名,消费者将订阅topic来消费该分类下的job
     "body": "xxx",   # 消息内容
     "delay": "111",  # 延迟时间,单位秒
@@ -119,21 +136,6 @@ $data = [
         'TTR'   => '0' 
     ];
 ```
-
-## 5. gmq流程图如下:
-![一个不规范的流程图](https://github.com/wuzhc/zcnote/raw/master/images/project/gmq%E6%B5%81%E7%A8%8B%E5%9B%BE.png)
-
-### 5.1 延迟时间delay
-- 当job.delay>0时,job会被分配到bucket中,bucket会有周期性扫描到期job,如果到期,job会被bucket移到`ready queue`,等待被消费
-- 当job.delay=0时,job会直接加到`ready queue`,等待被消费
-
-### 5.2 执行超时时间TTR
-参考第一个图的流程,当job被消费者读取后,如果`job.TTR>0`,即job设置了执行超时时间,那么job会在读取后会被添加到TTRBucket(专门存放设置了超时时间的job),并且设置`job.delay = job.TTR`,如果在TTR时间内没有得到消费者ack确认然后删除job,job将在TTR时间之后添加到`ready queue`,然后再次被消费(如果消费者在TTR时间之后才请求ack,会得到失败的响应)
-
-### 5.3 确认机制
-主要和TTR的设置有关系,确认机制可以分为两种:
-- 当job.TTR=0时,消费者`pop`出job时,即会自动删除`job pool`中的job元数据
-- 当job.TTR>0时,即job执行超时时间,这个时间是指用户`pop`出job时开始到用户`ack`确认删除结束这段时间,如果在这段时间没有`ACK`,job会被再次加入到`ready queue`,然后再次被消费,只有用户调用了`ACK`,才会去删除`job pool`中job元数据
 
 ## 6. web监控
 `gmq`提供了一个简单web监控平台(后期会提供根据job.Id追踪消息的功能),方便查看当前堆积任务数,默认监听端口为`8000`,例如:http://127.0.0.1:8000, 界面如下:
@@ -253,3 +255,13 @@ tcp        0      0 10.8.8.188:41482        10.8.8.185:9503         TIME_WAIT   
 ## 10. 相关链接
 - [有赞延迟队列设计](https://tech.youzan.com/queuing_delay/)
 - [Redis 实现队列](https://segmentfault.com/a/1190000011084493)
+
+## 11. 未来计划
+- 支持安全传输层协议（TLS）
+- 除了`json`外,可支持`protobuf`序列化
+- web监控工具提供消息追踪功能
+- 增加分布式部署方案
+- 增加数据统计收集器
+- 可持久化到磁盘
+- 支持http协议
+- 增加调试和分析 pprof
