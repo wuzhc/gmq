@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"gmq/utils"
@@ -59,7 +60,7 @@ func NewGmq(cfg string) *Gmq {
 }
 
 func (gmq *Gmq) Run() {
-	if gmq.running == 1 {
+	if atomic.LoadInt32(gmq.running) == 1 {
 		fmt.Println("running.")
 		return
 	}
@@ -67,7 +68,7 @@ func (gmq *Gmq) Run() {
 	ctx, cannel := context.WithCancel(context.Background())
 	defer cannel()
 
-	gmq.running = 1
+	atomic.StoreInt32(gmq.running, 1)
 	gmq.initLogger()
 	gmq.initRedisPool()
 	gmq.initSignalHandler(cannel)
