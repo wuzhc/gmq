@@ -265,3 +265,7 @@ tcp        0      0 10.8.8.188:41482        10.8.8.185:9503         TIME_WAIT   
 - 可持久化到磁盘
 - 支持http协议
 - 增加调试和分析 pprof
+
+
+# 2.0开发版本
+[https://github.com/wuzhc/gmq/tree/gmq-dev](https://github.com/wuzhc/gmq/tree/gmq-dev)
