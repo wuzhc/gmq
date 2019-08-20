@@ -267,5 +267,5 @@ tcp        0      0 10.8.8.188:41482        10.8.8.185:9503         TIME_WAIT   
 - 增加调试和分析 pprof
 
 
-# 2.0开发版本
+# 开发分支
 [https://github.com/wuzhc/gmq/tree/gmq-dev](https://github.com/wuzhc/gmq/tree/gmq-dev)
