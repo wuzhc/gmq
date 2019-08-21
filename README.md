@@ -5,4 +5,6 @@
 - 支持长连接方式
 
 ## 客户端
-- [go-client](https://github.com/wuzhc/gmq-client.git)
+- [golang客户端](https://github.com/wuzhc/gmq-client-go)
+- [php客户端](https://github.com/wuzhc/gmq-client-php)
+- [php-swoole客户端](https://github.com/wuzhc/gmq-client-swoole)
