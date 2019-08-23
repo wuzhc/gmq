@@ -24,15 +24,17 @@ var (
 )
 
 type Bucket struct {
-	sync.Mutex
 	Id              string
 	JobNum          int32
 	NextTime        time.Time
 	recvJob         chan *JobCard
 	addToReadyQueue chan string
 	resetTimerChan  chan struct{}
-	closed          chan struct{}
+	exitChan        chan struct{}
+	dispatcher      *Dispatcher
 	ctx             *Context
+	wg              utils.WaitGroupWrapper
+	sync.Mutex
 }
 
 type ByNum []*Bucket
@@ -54,15 +56,20 @@ func (b *Bucket) Key() string {
 }
 
 func (b *Bucket) run() {
-	go b.startTimer()
+	defer b.wg.Wait()
+
+	b.wg.Wrap(b.timer)
 
 	for {
 		select {
+		case <-b.dispatcher.exitChan:
+			b.exit()
+			return
 		case card := <-b.recvJob:
 			b.Lock()
 			if err := AddToBucket(b, card); err != nil {
 				// job添加到bucket失败了,要怎么处理???
-				b.ctx.Logger.Error(fmt.Sprintf("Add to bucket failed, the error is %v", err))
+				b.LogError(fmt.Sprintf("Add to bucket failed, the error is %v", err))
 				b.Unlock()
 				continue
 			}
@@ -71,7 +78,7 @@ func (b *Bucket) run() {
 			// 确保新的job能够即时添加到readyQueue,设置5秒间隔可以防止频繁重置定时器
 			subTime := b.NextTime.Sub(time.Now())
 			if subTime > 0 && subTime-time.Duration(card.delay) > timerResetDuration {
-				b.ctx.Logger.Debug(logs.LogCategory("resetTimer"), fmt.Sprintf("bid:%v,resettime", b.Id))
+				b.LogDebug(fmt.Sprintf("bid:%v,resettime", b.Id))
 				b.resetTimerChan <- struct{}{}
 			}
 
@@ -84,15 +91,18 @@ func (b *Bucket) run() {
 				continue
 			}
 			atomic.AddInt32(&b.JobNum, -1)
-		case <-b.closed:
-			// 接收timer退出通知
-			return
 		}
 	}
 }
 
+func (b *Bucket) exit() {
+	close(b.exitChan)
+}
+
 // 定时器周期性检索到期任务
-func (b *Bucket) startTimer() {
+func (b *Bucket) timer() {
+	defer b.LogInfo("Bucket timer exit.")
+
 	var (
 		duration = timerDefaultDuration
 		timer    = time.NewTimer(duration)
@@ -100,10 +110,12 @@ func (b *Bucket) startTimer() {
 
 	for {
 		select {
+		case <-b.exitChan:
+			return
 		case <-timer.C:
 			jobIds, nextTime, err := RetrivalTimeoutJobs(b)
 			if err != nil {
-				b.ctx.Logger.Error(fmt.Sprintf("bucketId: %v retrival failed, error:%v", b.Key(), err))
+				b.LogError(fmt.Sprintf("bucketId: %v retrival failed, error:%v", b.Key(), err))
 				timer.Reset(duration)
 				break
 			}
@@ -121,8 +133,7 @@ func (b *Bucket) startTimer() {
 			}
 
 			b.NextTime = time.Now().Add(duration)
-			logInfo := fmt.Sprintf("%v,nexttime:%v", b.Key(), utils.FormatTime(b.NextTime))
-			b.ctx.Logger.Info(logs.LogCategory("retrivaltime"), logInfo)
+			b.LogDebug(fmt.Sprintf("%v,nexttime:%v", b.Key(), utils.FormatTime(b.NextTime)))
 
 			timer.Reset(duration)
 		case <-b.resetTimerChan:
@@ -136,9 +147,6 @@ func (b *Bucket) startTimer() {
 
 			b.NextTime = time.Now().Add(timerDefaultDuration)
 			timer.Reset(timerDefaultDuration)
-		case <-b.ctx.Dispatcher.closed:
-			b.closed <- struct{}{}
-			return
 		}
 	}
 }
@@ -239,8 +247,24 @@ func RetrivalTimeoutJobs(b *Bucket) (jobIds []string, nextTime int, err error) {
 	return
 }
 
-func GetBucketJobNum(b *Bucket) int32 {
-	n, _ := Redis.Int32("ZCARD", b.Key())
+func GetBucketJobNum(bucketId string) int32 {
+	n, _ := Redis.Int32("ZCARD", GetBucketKeyById(bucketId))
 
 	return n
+}
+
+func (b *Bucket) LogError(msg interface{}) {
+	b.ctx.Logger.Error(logs.LogCategory(b.Key()), msg)
+}
+
+func (b *Bucket) LogWarn(msg interface{}) {
+	b.ctx.Logger.Warn(logs.LogCategory(b.Key()), msg)
+}
+
+func (b *Bucket) LogInfo(msg interface{}) {
+	b.ctx.Logger.Info(logs.LogCategory(b.Key()), msg)
+}
+
+func (b *Bucket) LogDebug(msg interface{}) {
+	b.ctx.Logger.Debug(logs.LogCategory(b.Key()), msg)
 }

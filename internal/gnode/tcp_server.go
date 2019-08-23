@@ -1,18 +1,16 @@
 // 功能:
-// 		- 维护topic和客户端链接的关联,一对多关系
-// 		- 一个topic一个goroutine,执行brpop阻塞,等有消息时分配给客户端,主动推送
-// 难点:
-//		- 分配机制,均匀轮询? 权重? 客户端消费情况?
-// 		- tcp粘包处理,TCP连接是长连接，即一次连接多次发送数据。
-// 		- job消息序列化处理(json, glob, protocol)
+// 	- tcp粘包处理,TCP连接是长连接，即一次连接多次发送数据。
+// 	- job消息序列化处理(json, glob, protocol)
 package gnode
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"sync"
 
 	"github.com/wuzhc/gmq/pkg/coder"
+	"github.com/wuzhc/gmq/pkg/logs"
 	"github.com/wuzhc/gmq/pkg/utils"
 )
 
@@ -24,6 +22,7 @@ type TcpServ struct {
 	m        map[string][]net.Conn
 	ch       chan string
 	exitChan chan struct{}
+	closed   bool
 }
 
 func NewTcpServ(ctx *Context) *TcpServ {
@@ -37,34 +36,64 @@ func NewTcpServ(ctx *Context) *TcpServ {
 }
 
 func (s *TcpServ) Run() {
-	defer s.wg.Wait()
+	defer func() {
+		s.wg.Wait()
+		s.LogInfo("Tcp server exit.")
+	}()
 
-	s.ctx.Logger.Info("tcp_server is running")
 	addr := s.ctx.Conf.TcpServAddr
+	s.LogInfo(fmt.Sprintf("Tcp server(%s) is running.", addr))
+
 	listen, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	go func() {
+		<-s.ctx.Gnode.exitChan
+		s.exit()
+		listen.Close()
+	}()
+
 	for {
-		select {
-		case <-s.exitChan:
-			return
-		default:
-			conn, err := listen.Accept()
-			if err != nil {
-				log.Printf("Accept failed \n")
+		conn, err := listen.Accept()
+		if err != nil {
+			if s.closed {
+				return
+			} else {
+				s.LogError(err)
 				continue
 			}
-
-			tcpConn := &TcpConn{
-				conn:     conn,
-				serv:     s,
-				doChan:   make(chan *TcpPkg),
-				exitChan: make(chan struct{}),
-			}
-
-			s.wg.Wrap(tcpConn.Handle)
 		}
+
+		tcpConn := &TcpConn{
+			conn:     conn,
+			serv:     s,
+			doChan:   make(chan *TcpPkg),
+			exitChan: make(chan struct{}),
+		}
+
+		s.wg.Wrap(tcpConn.Handle)
 	}
+}
+
+func (s *TcpServ) exit() {
+	s.closed = true
+	close(s.exitChan)
+}
+
+func (s *TcpServ) LogError(msg interface{}) {
+	s.ctx.Logger.Error(logs.LogCategory("TcpServer"), msg)
+}
+
+func (s *TcpServ) LogWarn(msg interface{}) {
+	s.ctx.Logger.Warn(logs.LogCategory("TcpServer"), msg)
+}
+
+func (s *TcpServ) LogInfo(msg interface{}) {
+	s.ctx.Logger.Info(logs.LogCategory("TcpServer"), msg)
+}
+
+func (s *TcpServ) LogDebug(msg interface{}) {
+	s.ctx.Logger.Debug(logs.LogCategory("TcpServer"), msg)
 }

@@ -56,7 +56,7 @@ func (f *fileTarget) WriteMsg(data logData) {
 
 	prefix := logPrefix(data.level)
 	now := utils.CurDatetime()
-	s := fmt.Sprintf("[%s] [%s] [%s] %s \n", prefix, data.category, now, data.msg)
+	s := fmt.Sprintf("[%s] [%s] [%s] %s \n", prefix, now, data.category, data.msg)
 	nbyte, err := f.fd.WriteString(s)
 	if err != nil {
 		panic(err)

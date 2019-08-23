@@ -69,8 +69,6 @@ func (gn *Gnode) Run() {
 }
 
 func (gn *Gnode) Exit() {
-	defer log.Println("end.")
-
 	if err := gn.unregister(); err != nil {
 		log.Fatalln("failed")
 	}

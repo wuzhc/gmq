@@ -14,7 +14,7 @@ func (f *consoleTarget) WriteMsg(data logData) {
 	prefix := logPrefix(data.level)
 	now := time.Now().Format("2006-01-02 15:04:05")
 
-	s := fmt.Sprintf("[%s] [%s] [%s]", prefix, data.category, now)
+	s := fmt.Sprintf("[%s] [%s] [%s]", prefix, now, data.category)
 	s = fmt.Sprintf("%s %s\n", highlight(s, data.level), data.msg)
 	_, err := f.fd.WriteString(s)
 	if err != nil {

@@ -1,8 +1,8 @@
 // job调度器
 // 功能:
-// 		- 负责分配延时job到bucket
-//		- 负责添加job到job pool
-//		- 管理所有bucket
+// 	- 负责分配延时job到bucket
+//	- 负责添加job到job pool
+//	- 管理所有bucket
 
 package gnode
 
@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/wuzhc/gmq/pkg/logs"
 	"github.com/wuzhc/gmq/pkg/utils"
 )
 
@@ -24,9 +25,9 @@ var (
 type Dispatcher struct {
 	addToBucket    chan *JobCard
 	addToTTRBucket chan *JobCard
-	closed         chan struct{}
+	exitChan       chan struct{}
 	TTRBuckets     []*Bucket
-	bucket         []*Bucket
+	buckets        []*Bucket
 	ctx            *Context
 	mux            sync.RWMutex
 	wg             utils.WaitGroupWrapper
@@ -36,7 +37,7 @@ func NewDispatcher(ctx *Context) *Dispatcher {
 	dispatcher := &Dispatcher{
 		addToBucket:    make(chan *JobCard),
 		addToTTRBucket: make(chan *JobCard),
-		closed:         make(chan struct{}),
+		exitChan:       make(chan struct{}),
 		ctx:            ctx,
 	}
 	ctx.Dispatcher = dispatcher
@@ -44,31 +45,34 @@ func NewDispatcher(ctx *Context) *Dispatcher {
 }
 
 func (d *Dispatcher) Run() {
+	defer func() {
+		d.wg.Wait()
+		d.LogInfo("Dispatcher exit.")
+	}()
+
 	if err := d.initBucket(); err != nil {
 		panic(err)
 	}
 
 	for {
 		select {
+		case <-d.ctx.Gnode.exitChan:
+			d.LogInfo("Dispather waiting for bucket exit.")
+			close(d.exitChan)
+			return
 		case card := <-d.addToBucket:
 			if card.delay > 0 {
-				sort.Sort(ByNum(d.bucket))
-				d.bucket[0].recvJob <- card
+				sort.Sort(ByNum(d.buckets))
+				d.buckets[0].recvJob <- card
 			} else {
-				// 延迟时间<=0,直接添加到队列(作为普通队列使用)
+				// 延迟时间job.delay <= 0,直接添加到topic队列
 				if err := AddToReadyQueue(card.id); err != nil {
-					// 添加ready queue失败了,要怎么处理
-					d.ctx.Logger.Error(err)
+					d.LogError(err)
 				}
 			}
 		case card := <-d.addToTTRBucket:
 			sort.Sort(ByNum(d.TTRBuckets))
 			d.TTRBuckets[0].recvJob <- card
-		case <-d.ctx.Gnode.ctx.Done():
-			d.ctx.Logger.Info("dispatcher notifies all bucket to close.")
-			close(d.closed)
-			d.wg.Wait()
-			return
 		}
 	}
 }
@@ -82,37 +86,37 @@ func (d *Dispatcher) initBucket() error {
 	}
 
 	for i := 0; i < d.ctx.Conf.BucketNum; i++ {
+		id := strconv.Itoa(i)
 		b := &Bucket{
-			Id:              strconv.Itoa(i),
+			Id:              id,
 			recvJob:         make(chan *JobCard),
 			addToReadyQueue: make(chan string),
 			resetTimerChan:  make(chan struct{}),
-			closed:          make(chan struct{}),
+			exitChan:        make(chan struct{}),
+			JobNum:          GetBucketJobNum(id),
+			dispatcher:      d,
 			ctx:             d.ctx,
 		}
 
-		b.JobNum = GetBucketJobNum(b)
-		d.wg.Wrap(func() {
-			b.run()
-		})
-		d.bucket = append(d.bucket, b)
+		d.buckets = append(d.buckets, b)
+		d.wg.Wrap(b.run)
 	}
 
 	for i := 0; i < d.ctx.Conf.TTRBucketNum; i++ {
+		id := "TTR:" + string(i+65)
 		b := &Bucket{
-			Id:              "TTR:" + string(i+65),
+			Id:              id,
 			recvJob:         make(chan *JobCard),
 			addToReadyQueue: make(chan string),
 			resetTimerChan:  make(chan struct{}),
-			closed:          make(chan struct{}),
+			exitChan:        make(chan struct{}),
+			JobNum:          GetBucketJobNum(id),
+			dispatcher:      d,
 			ctx:             d.ctx,
 		}
 
-		b.JobNum = GetBucketJobNum(b)
-		d.wg.Wrap(func() {
-			b.run()
-		})
 		d.TTRBuckets = append(d.TTRBuckets, b)
+		d.wg.Wrap(b.run)
 	}
 
 	return nil
@@ -131,5 +135,17 @@ func (d *Dispatcher) AddToJobPool(j *Job) error {
 }
 
 func (d *Dispatcher) GetBuckets() []*Bucket {
-	return d.bucket
+	return d.buckets
+}
+
+func (d *Dispatcher) LogError(msg interface{}) {
+	d.ctx.Logger.Error(logs.LogCategory("Dispatcher"), msg)
+}
+
+func (d *Dispatcher) LogWarn(msg interface{}) {
+	d.ctx.Logger.Warn(logs.LogCategory("Dispatcher"), msg)
+}
+
+func (d *Dispatcher) LogInfo(msg interface{}) {
+	d.ctx.Logger.Info(logs.LogCategory("Dispatcher"), msg)
 }

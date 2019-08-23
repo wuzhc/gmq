@@ -7,9 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
-	"runtime/pprof"
 	"strings"
+	"sync"
 
 	"github.com/gomodule/redigo/redis"
 	"github.com/wuzhc/gmq/pkg/logs"
@@ -35,6 +34,7 @@ type TcpConn struct {
 	wg       utils.WaitGroupWrapper
 	doChan   chan *TcpPkg
 	exitChan chan struct{}
+	once     sync.Once
 }
 
 // 处理连接,拆包处理
@@ -42,17 +42,9 @@ type TcpConn struct {
 //   包头      命令长度     数据长度     命令        数据
 //  4-bytes   2-bytes     2-bytes    n-bytes     n-bytes
 func (c *TcpConn) Handle() {
-	f, _ := os.Create("gmq_x.prof")
-	pprof.StartCPUProfile(f)
-	defer pprof.StopCPUProfile()
+	defer c.wg.Wait()
 
-	defer func() {
-		close(c.exitChan)
-		c.conn.Close()
-		c.LogWarn("Tcp conn had been closed.")
-	}()
-
-	go c.router()
+	c.wg.Wrap(c.router)
 
 	scanner := bufio.NewScanner(c.conn)
 	scanner.Split(func(data []byte, atEOF bool) (advance int, token []byte, err error) {
@@ -81,13 +73,20 @@ func (c *TcpConn) Handle() {
 	}
 }
 
+func (c *TcpConn) exit() {
+	c.once.Do(func() {
+		close(c.exitChan)
+		c.conn.Close()
+	})
+}
+
 func (c *TcpConn) router() {
-	defer func() {
-		c.LogWarn("Tcp conn router had been closed.")
-	}()
+	defer c.LogWarn("Tcp conn router had been closed.")
 
 	for {
 		select {
+		case <-c.serv.exitChan:
+			return
 		case <-c.exitChan:
 			return
 		case pkg := <-c.doChan:
@@ -97,9 +96,6 @@ func (c *TcpConn) router() {
 }
 
 func (c *TcpConn) handlePackage(pkg *TcpPkg) bool {
-	// c.RespMsg("success")
-	// return true
-
 	cmd := string(pkg.Cmd)
 	switch cmd {
 	case CMD_PUSH:
@@ -167,6 +163,7 @@ func (c *TcpConn) Response(respType int16, respData []byte) {
 
 	if err := pkg.Pack(c.conn); err != nil {
 		c.LogError(err)
+		c.exit()
 	}
 }
 

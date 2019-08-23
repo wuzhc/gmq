@@ -2,9 +2,6 @@
 // http server几个概念
 // - handler(具有serverHttp方法),包括handler对象,handler函数,handler处理器
 // - serverMux,用于调用handler的serverHttp方法
-// 疑问:
-// 		- https流程是什么?
-// 		- 什么是双向认证
 package gnode
 
 import (
@@ -13,6 +10,8 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+
+	"github.com/wuzhc/gmq/pkg/logs"
 )
 
 const (
@@ -31,6 +30,8 @@ func NewHttpServ(ctx *Context) *HttpServ {
 }
 
 func (s *HttpServ) Run() {
+	defer s.LogInfo("Http server exit.")
+
 	api := &HttpApi{
 		ctx: s.ctx,
 	}
@@ -46,20 +47,24 @@ func (s *HttpServ) Run() {
 		Handler: handlerMux(mux),
 	}
 
+	go func() {
+		<-s.ctx.Gnode.exitChan
+		serv.Shutdown(nil)
+	}()
+
 	var err error
 	if s.ctx.Conf.HttpServEnableTls {
 		certFile := s.ctx.Conf.HttpServCertFile
 		keyFile := s.ctx.Conf.HttpServKeyFile
-		s.ctx.Logger.Info(fmt.Sprintf("http_server(%s) is running with tls", addr))
+		s.LogInfo(fmt.Sprintf("Http server(%s) is running with tls", addr))
 		err = serv.ListenAndServeTLS(certFile, keyFile)
 	} else {
-		s.ctx.Logger.Info(fmt.Sprintf("http_server %s is running", addr))
+		s.LogInfo(fmt.Sprintf("Http server(%s) is running", addr))
 		err = serv.ListenAndServe()
 	}
 
 	if err != nil {
-		s.ctx.Logger.Error("start http server failed, ", err.Error())
-		panic(err)
+		s.LogDebug(err)
 	}
 }
 
@@ -191,4 +196,20 @@ func (c *HttpServContext) GetDefaultInt(key string, def int) int {
 
 func (c *HttpServContext) Post(key string) string {
 	return c.r.PostFormValue(key)
+}
+
+func (s *HttpServ) LogError(msg interface{}) {
+	s.ctx.Logger.Error(logs.LogCategory("HttpServer"), msg)
+}
+
+func (s *HttpServ) LogWarn(msg interface{}) {
+	s.ctx.Logger.Warn(logs.LogCategory("HttpServer"), msg)
+}
+
+func (s *HttpServ) LogInfo(msg interface{}) {
+	s.ctx.Logger.Info(logs.LogCategory("HttpServer"), msg)
+}
+
+func (s *HttpServ) LogDebug(msg interface{}) {
+	s.ctx.Logger.Debug(logs.LogCategory("HttpServer"), msg)
 }
