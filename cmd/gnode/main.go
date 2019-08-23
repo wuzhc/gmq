@@ -4,29 +4,11 @@
 package main
 
 import (
-	"runtime"
-	// "flag"
 	"github.com/wuzhc/gmq/internal/gnode"
-	// "log"
-	// "os"
-	// "runtime/pprof"
 )
 
-// var cpuprofile = flag.String("cpuprofile", "", "cpu")
-
 func main() {
-	runtime.GOMAXPROCS(8)
-	gn := gnode.New("./conf.ini")
-
-	// flag.Parse()
-	// if *cpuprofile != "" {
-	// 	f, err := os.Create(*cpuprofile)
-	// 	if err != nil {
-	// 		log.Fatalln(err)
-	// 	}
-	// 	pprof.StartCPUProfile(f)
-	// 	defer pprof.StopCPUProfile()
-	// }
-
+	gn := gnode.New()
+	gn.SetConfig("./conf.ini")
 	gn.Run()
 }

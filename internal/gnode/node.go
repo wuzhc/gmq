@@ -7,8 +7,11 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
 	"sync/atomic"
+	"syscall"
 
 	"github.com/wuzhc/gmq/configs"
 	"github.com/wuzhc/gmq/pkg/logs"
@@ -19,65 +22,63 @@ import (
 
 type Gnode struct {
 	running  int32
-	confPath string
+	exitChan chan struct{}
 	ctx      context.Context
 	wg       utils.WaitGroupWrapper
-	closed   chan struct{}
 	cfg      *configs.GnodeConfig
 }
 
-func New(confPath string) *Gnode {
-	gn := &Gnode{
-		confPath: confPath,
+func New() *Gnode {
+	return &Gnode{
+		ctx:      context.Background(),
+		exitChan: make(chan struct{}),
 	}
-	gn.ctx = context.Background()
-	gn.closed = make(chan struct{})
-	return gn
 }
 
 func (gn *Gnode) Run() {
+	defer gn.wg.Wait()
+
 	if atomic.LoadInt32(&gn.running) == 1 {
-		log.Fatalln("gnode is running")
+		log.Fatalln("Gnode is running.")
 	}
 	if !atomic.CompareAndSwapInt32(&gn.running, 0, 1) {
-		log.Fatalln("start failed")
+		log.Fatalln("Gnode start failed.")
 	}
 
-	cfg := initConfig(gn.confPath)
-	logger := initLogger(cfg)
-	redisDB := initRedisPool(cfg)
-	gn.cfg = cfg
+	if gn.cfg == nil {
+		gn.SetDefaultConfig()
+	}
 
 	ctx := &Context{
 		Gnode:   gn,
-		Conf:    cfg,
-		Logger:  logger,
-		RedisDB: redisDB,
+		Conf:    gn.cfg,
+		Logger:  gn.initLogger(),
+		RedisDB: gn.initRedisPool(),
 	}
 
 	gn.wg.Wrap(NewDispatcher(ctx).Run)
 	gn.wg.Wrap(NewHttpServ(ctx).Run)
 	gn.wg.Wrap(NewTcpServ(ctx).Run)
 
-	if err := register(cfg.GregisterAddr, cfg.TcpServAddr, cfg.HttpServAddr, cfg.TcpServWeight); err != nil {
-		log.Fatalln(err)
+	if err := gn.register(); err != nil {
+		log.Fatalln("Register failed, ", err)
 	}
 
-	ctx.Logger.Info("gnode is running.")
-	<-gn.closed
+	gn.installSignalHandler()
+	ctx.Logger.Info("Gnode is running.")
 }
 
 func (gn *Gnode) Exit() {
-	// todo 不能正常注销
-	if err := unregister(gn.cfg.GregisterAddr, gn.cfg.TcpServAddr); err != nil {
+	defer log.Println("end.")
+
+	if err := gn.unregister(); err != nil {
 		log.Fatalln("failed")
 	}
 
-	close(gn.closed)
-	gn.wg.Wait()
+	close(gn.exitChan)
 }
 
-func initConfig(cfgFile string) *configs.GnodeConfig {
+func (gn *Gnode) SetConfig(cfgFile string) {
 	if res, err := utils.PathExists(cfgFile); !res {
 		if err != nil {
 			log.Fatalf("%s is not exists,errors:%s \n", cfgFile, err.Error())
@@ -132,16 +133,37 @@ func initConfig(cfgFile string) *configs.GnodeConfig {
 	flag.StringVar(&cfg.HttpServAddr, "http_addr", httpServAddr, "http address")
 	flag.Parse()
 
-	cfg.SetDefault()
-	return cfg
+	gn.cfg = cfg
+	gn.cfg.SetDefault()
 }
 
-func initLogger(cfg *configs.GnodeConfig) *logs.Dispatcher {
+func (gn *Gnode) SetDefaultConfig() {
+	cfg := new(configs.GnodeConfig)
+
+	flag.StringVar(&gn.cfg.TcpServAddr, "tcp_addr", "", "tcp address")
+	flag.StringVar(&gn.cfg.HttpServAddr, "http_addr", "", "http address")
+	flag.Parse()
+
+	gn.cfg = cfg
+	gn.cfg.SetDefault()
+}
+
+func (gn *Gnode) installSignalHandler() {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+
+	go func() {
+		<-sigs
+		gn.Exit()
+	}()
+}
+
+func (gn *Gnode) initLogger() *logs.Dispatcher {
 	logger := logs.NewDispatcher()
-	targets := strings.Split(cfg.LogTargetType, ",")
+	targets := strings.Split(gn.cfg.LogTargetType, ",")
 	for _, t := range targets {
 		if t == logs.TARGET_FILE {
-			conf := fmt.Sprintf(`{"filename":"%s","level":%d,"max_size":%d,"rotate":%v}`, cfg.LogFilename, cfg.LogLevel, cfg.LogMaxSize, cfg.LogRotate)
+			conf := fmt.Sprintf(`{"filename":"%s","level":%d,"max_size":%d,"rotate":%v}`, gn.cfg.LogFilename, gn.cfg.LogLevel, gn.cfg.LogMaxSize, gn.cfg.LogRotate)
 			logger.SetTarget(logs.TARGET_FILE, conf)
 		} else if t == logs.TARGET_CONSOLE {
 			logger.SetTarget(logs.TARGET_CONSOLE, "")
@@ -152,14 +174,14 @@ func initLogger(cfg *configs.GnodeConfig) *logs.Dispatcher {
 	return logger
 }
 
-func initRedisPool(cfg *configs.GnodeConfig) *RedisDB {
-	return Redis.InitPool(cfg)
+func (gn *Gnode) initRedisPool() *RedisDB {
+	return Redis.InitPool(gn.cfg)
 }
 
-func register(registerAddr, tcpAddr, httpAddr string, weight int) error {
-	hosts := strings.Split(registerAddr, ",")
+func (gn *Gnode) register() error {
+	hosts := strings.Split(gn.cfg.GregisterAddr, ",")
 	for _, host := range hosts {
-		url := fmt.Sprintf("%s/register?tcp_addr=%s&http_addr=%s&weight=%d", host, tcpAddr, httpAddr, weight)
+		url := fmt.Sprintf("%s/register?tcp_addr=%s&http_addr=%s&weight=%d", host, gn.cfg.TcpServAddr, gn.cfg.HttpServAddr, gn.cfg.TcpServWeight)
 		resp, err := http.Get(url)
 		if err != nil {
 			return err
@@ -173,10 +195,10 @@ func register(registerAddr, tcpAddr, httpAddr string, weight int) error {
 	return nil
 }
 
-func unregister(registerAddr, tcpAddr string) error {
-	ts := strings.Split(registerAddr, ",")
+func (gn *Gnode) unregister() error {
+	ts := strings.Split(gn.cfg.GregisterAddr, ",")
 	for _, t := range ts {
-		url := t + "/unregister?tcp_addr=" + tcpAddr
+		url := t + "/unregister?tcp_addr=" + gn.cfg.TcpServAddr
 		resp, err := http.Get(url)
 		if err != nil {
 			return err
