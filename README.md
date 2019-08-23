@@ -46,6 +46,12 @@ gmq使用了固定包头+包体的形式来解决粘包问题,一个数据包如
 ```
 更多详情参考[gmq传输协议](gmq传输协议)
 
+## 客户端
+- [golang客户端](https://github.com/wuzhc/gmq-client-go)
+- [php客户端](https://github.com/wuzhc/gmq-client-php)
+- [php-swoole客户端](https://github.com/wuzhc/gmq-client-swoole)
+
+
 ## 相关文章
 - gmq设计流程
 - gmq传输协议
