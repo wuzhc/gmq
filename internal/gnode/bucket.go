@@ -28,7 +28,7 @@ type Bucket struct {
 	JobNum          int32
 	NextTime        time.Time
 	recvJob         chan *JobCard
-	addToReadyQueue chan string
+	addToReadyQueue chan int64
 	resetTimerChan  chan struct{}
 	exitChan        chan struct{}
 	dispatcher      *Dispatcher
@@ -86,8 +86,7 @@ func (b *Bucket) run() {
 			b.Unlock()
 		case jobId := <-b.addToReadyQueue:
 			if err := AddToReadyQueue(jobId); err != nil {
-				// 添加ready queue失败了,要怎么处理
-				b.ctx.Logger.Error(err)
+				b.LogError(err)
 				continue
 			}
 			atomic.AddInt32(&b.JobNum, -1)
@@ -123,7 +122,7 @@ func (b *Bucket) timer() {
 			// 若addToReadyQueue处理太慢,注意这里会阻塞
 			// 不要单独的goroutine去处理,会导致addToReadyQueue堆积太多job
 			for _, jobId := range jobIds {
-				b.addToReadyQueue <- jobId
+				b.addToReadyQueue <- int64(jobId)
 			}
 
 			if nextTime == -1 {
@@ -190,7 +189,7 @@ func RemoveFromBucket() error {
 // 	-1 当前bucket已经没有jobs
 //  >0 当前bucket下个job到期时间
 // 可能整个事务需要保证原子一致性
-func RetrivalTimeoutJobs(b *Bucket) (jobIds []string, nextTime int, err error) {
+func RetrivalTimeoutJobs(b *Bucket) (jobIds []int, nextTime int, err error) {
 	conn := Redis.Pool.Get()
 	defer conn.Close()
 
@@ -223,19 +222,19 @@ func RetrivalTimeoutJobs(b *Bucket) (jobIds []string, nextTime int, err error) {
 			end
 		end
 		
-		table.insert(res,1,tostring(nextTime))
+		table.insert(res,1,tonumber(nextTime))
 		return res
 	
 	`
 
 	var ns = redis.NewScript(1, script)
-	res, err := redis.Strings(ns.Do(conn, b.Key(), JOB_STATUS_DELAY, JOB_STATUS_RESERVED, JOB_POOL_KEY, time.Now().Unix()))
+	res, err := redis.Ints(ns.Do(conn, b.Key(), JOB_STATUS_DELAY, JOB_STATUS_RESERVED, JOB_POOL_KEY, time.Now().Unix()))
 	if err != nil {
-		b.ctx.Logger.Debug(err)
+		b.LogError(err)
 		return nil, 0, err
 	}
 
-	nextTime, err = strconv.Atoi(res[0])
+	nextTime = res[0]
 	if err != nil {
 		return
 	}

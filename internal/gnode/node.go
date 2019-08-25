@@ -2,6 +2,7 @@ package gnode
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -92,6 +93,9 @@ func (gn *Gnode) SetConfig(cfgFile string) {
 
 	cfg := new(configs.GnodeConfig)
 
+	// node
+	cfg.NodeId, _ = c.Section("node").Key("id").Int64()
+
 	// log config
 	cfg.LogFilename = c.Section("log").Key("filename").String()
 	cfg.LogLevel, _ = c.Section("log").Key("level").Int()
@@ -176,17 +180,31 @@ func (gn *Gnode) initRedisPool() *RedisDB {
 	return Redis.InitPool(gn.cfg)
 }
 
+type rs struct {
+	Code int         `json:"code"`
+	Data interface{} `json:"data"`
+	Msg  string      `json:"msg"`
+}
+
 func (gn *Gnode) register() error {
 	hosts := strings.Split(gn.cfg.GregisterAddr, ",")
 	for _, host := range hosts {
-		url := fmt.Sprintf("%s/register?tcp_addr=%s&http_addr=%s&weight=%d", host, gn.cfg.TcpServAddr, gn.cfg.HttpServAddr, gn.cfg.TcpServWeight)
+		url := fmt.Sprintf("%s/register?tcp_addr=%s&http_addr=%s&weight=%d&node_id=%d", host, gn.cfg.TcpServAddr, gn.cfg.HttpServAddr, gn.cfg.TcpServWeight, gn.cfg.NodeId)
 		resp, err := http.Get(url)
 		if err != nil {
 			return err
 		}
-		_, err = ioutil.ReadAll(resp.Body)
+		res, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			return err
+		}
+
+		var r rs
+		if err := json.Unmarshal(res, &r); err != nil {
+			log.Fatalln(err)
+		}
+		if r.Code == 1 {
+			log.Fatalln(r.Msg)
 		}
 	}
 
@@ -201,9 +219,17 @@ func (gn *Gnode) unregister() error {
 		if err != nil {
 			return err
 		}
-		_, err = ioutil.ReadAll(resp.Body)
+		res, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			return err
+		}
+
+		var r rs
+		if err := json.Unmarshal(res, &r); err != nil {
+			log.Fatalln(err)
+		}
+		if r.Code == 1 {
+			log.Fatalln(r.Msg)
 		}
 	}
 

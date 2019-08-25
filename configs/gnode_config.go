@@ -1,6 +1,8 @@
 package configs
 
 type GnodeConfig struct {
+	NodeId int64
+
 	// redis
 	RedisMaxIdle     int    `gmq:"redis_max_idle" def:"3"`
 	RedisMaxActive   int    `gmq:"redis_max_active" def:"3000"`

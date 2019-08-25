@@ -185,6 +185,12 @@ func (c *HttpServContext) GetInt(key string) int {
 	return iv
 }
 
+func (c *HttpServContext) GetInt64(key string) int64 {
+	v := c.r.URL.Query().Get(key)
+	iv, _ := strconv.ParseInt(v, 10, 64)
+	return iv
+}
+
 func (c *HttpServContext) GetDefaultInt(key string, def int) int {
 	v := c.r.URL.Query().Get(key)
 	iv, err := strconv.Atoi(v)

@@ -23,6 +23,7 @@ var (
 )
 
 type Dispatcher struct {
+	snowflake      *utils.Snowflake
 	addToBucket    chan *JobCard
 	addToTTRBucket chan *JobCard
 	exitChan       chan struct{}
@@ -34,12 +35,19 @@ type Dispatcher struct {
 }
 
 func NewDispatcher(ctx *Context) *Dispatcher {
+	sn, err := utils.NewSnowflake(ctx.Conf.NodeId)
+	if err != nil {
+		panic(err)
+	}
+
 	dispatcher := &Dispatcher{
+		snowflake:      sn,
 		addToBucket:    make(chan *JobCard),
 		addToTTRBucket: make(chan *JobCard),
 		exitChan:       make(chan struct{}),
 		ctx:            ctx,
 	}
+
 	ctx.Dispatcher = dispatcher
 	return dispatcher
 }
@@ -90,7 +98,7 @@ func (d *Dispatcher) initBucket() error {
 		b := &Bucket{
 			Id:              id,
 			recvJob:         make(chan *JobCard),
-			addToReadyQueue: make(chan string),
+			addToReadyQueue: make(chan int64),
 			resetTimerChan:  make(chan struct{}),
 			exitChan:        make(chan struct{}),
 			JobNum:          GetBucketJobNum(id),
@@ -107,7 +115,7 @@ func (d *Dispatcher) initBucket() error {
 		b := &Bucket{
 			Id:              id,
 			recvJob:         make(chan *JobCard),
-			addToReadyQueue: make(chan string),
+			addToReadyQueue: make(chan int64),
 			resetTimerChan:  make(chan struct{}),
 			exitChan:        make(chan struct{}),
 			JobNum:          GetBucketJobNum(id),
@@ -123,6 +131,9 @@ func (d *Dispatcher) initBucket() error {
 }
 
 func (d *Dispatcher) AddToJobPool(j *Job) error {
+	if j.Id == 0 {
+		j.Id = d.snowflake.Generate()
+	}
 	if err := j.Validate(); err != nil {
 		return err
 	}

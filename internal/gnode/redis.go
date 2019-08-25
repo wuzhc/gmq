@@ -1,6 +1,7 @@
 package gnode
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/gomodule/redigo/redis"
@@ -75,6 +76,10 @@ func (db *RedisDB) Int32(command string, args ...interface{}) (int32, error) {
 	return int32(v), err
 }
 
+func (db *RedisDB) Int64(command string, args ...interface{}) (int64, error) {
+	return redis.Int64(db.Do(command, args...))
+}
+
 func (db *RedisDB) Ints(command string, args ...interface{}) ([]int, error) {
 	return redis.Ints(db.Do(command, args...))
 }
@@ -83,8 +88,8 @@ func (db *RedisDB) StringMap(command string, args ...interface{}) (map[string]st
 	return redis.StringMap(db.Do(command, args...))
 }
 
-func GetJobKeyById(id string) string {
-	return JOB_POOL_KEY + ":" + id
+func GetJobKeyById(id int64) string {
+	return JOB_POOL_KEY + ":" + strconv.FormatInt(id, 10)
 }
 
 func GetJobQueueByTopic(topic string) string {

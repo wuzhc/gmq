@@ -11,8 +11,8 @@ gmq.log
 /keys
 /web
 
-/cmd/gnode/gmq.log
+/cmd/gnode/gnode.log
 /cmd/gnode/gnode
 /cmd/gnode/gmq_x.prof
 /cmd/gregister/gregister
-/cmd/gregister/gmq.log
+/cmd/gregister/gregister.log

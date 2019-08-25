@@ -2,6 +2,7 @@ package gregister
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/wuzhc/gmq/pkg/utils"
 )
@@ -16,24 +17,35 @@ func (h *HttpApi) Register(c *HttpServContext) {
 	h.ctx.Gregister.mux.RLock()
 	defer h.ctx.Gregister.mux.RUnlock()
 
-	tcp_addr := c.Get("tcp_addr")
-	http_addr := c.Get("http_addr")
+	tcpAddr := c.Get("tcp_addr")
+	httpAddr := c.Get("http_addr")
 	weight := c.GetInt("weight")
+	nodeId := c.GetInt64("node_id")
 
 	for _, n := range h.ctx.Gregister.nodes {
-		if n.TcpAddr == tcp_addr {
-			c.JsonErr(errors.New("has register"))
+		if n.Id == nodeId {
+			c.JsonErr(errors.New(fmt.Sprintf("node.Id %d has exist", nodeId)))
+			return
+		}
+		if n.TcpAddr == tcpAddr {
+			c.JsonErr(errors.New(fmt.Sprintf("node.tcpAddr %s has exist", tcpAddr)))
+			return
+		}
+		if n.HttpAddr == httpAddr {
+			c.JsonErr(errors.New(fmt.Sprintf("node.httpAddr %s has exist", httpAddr)))
 			return
 		}
 	}
 
 	node := node{
-		TcpAddr:  tcp_addr,
-		HttpAddr: http_addr,
+		Id:       nodeId,
+		TcpAddr:  tcpAddr,
+		HttpAddr: httpAddr,
 		Weight:   weight,
 		JoinTime: utils.CurDatetime(),
 	}
 	h.ctx.Gregister.nodes = append(h.ctx.Gregister.nodes, node)
+
 	c.JsonSuccess("success")
 	return
 }

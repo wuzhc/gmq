@@ -16,6 +16,7 @@ import (
 )
 
 type node struct {
+	Id       int64  `json:"id"`
 	HttpAddr string `json:"http_addr"`
 	TcpAddr  string `json:"tcp_addr"`
 	JoinTime string `json:"join_time"`
@@ -58,7 +59,6 @@ func (gr *Gregister) Run() {
 		NewHttpServ(ctx).Run()
 	})
 
-	log.Println("run...")
 	<-gr.closed
 }
 

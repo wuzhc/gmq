@@ -10,7 +10,7 @@ import (
 )
 
 type Job struct {
-	Id         string `redis:"id"`
+	Id         int64  `redis:"id"`
 	Topic      string `redis:"topic"`
 	Delay      int    `redis:"delay"`
 	TTR        int    `redis:"TTR"` // time-to-run
@@ -32,7 +32,7 @@ var (
 )
 
 func (j *Job) Validate() error {
-	if len(j.Id) == 0 {
+	if j.Id == 0 {
 		return ErrJobIdEmpty
 	}
 	if len(j.Topic) == 0 {
@@ -48,7 +48,7 @@ func (j *Job) String() string {
 }
 
 type JobCard struct {
-	id    string
+	id    int64
 	delay int
 	topic string
 }
@@ -102,7 +102,10 @@ func PopFromMutilTopic(ctx *Context, topics ...string) (*Job, error) {
 		return nil, err
 	}
 
-	jobId := records[1]
+	jobId, err := strconv.ParseInt(records[1], 10, 64)
+	if err != nil {
+		return nil, err
+	}
 	if err := SetJobStatus(jobId, JOB_STATUS_RESERVED); err != nil {
 		return nil, err
 	}
@@ -140,7 +143,10 @@ func Pop(topic string, ctx *Context) (map[string]string, error) {
 		return nil, err
 	}
 
-	jobId := records[1]
+	jobId, err := strconv.ParseInt(records[1], 10, 64)
+	if err != nil {
+		return nil, err
+	}
 	if err := SetJobStatus(jobId, JOB_STATUS_RESERVED); err != nil {
 		return nil, err
 	}
@@ -159,18 +165,18 @@ func Pop(topic string, ctx *Context) (map[string]string, error) {
 	if TTR > 0 {
 		IncrJobConsumeNum(jobId)
 		ctx.Dispatcher.addToTTRBucket <- &JobCard{
-			id:    detail["id"],
+			id:    jobId,
 			delay: TTR + 3,
 			topic: detail["topic"],
 		}
 	} else {
-		Ack(detail["id"])
+		Ack(jobId)
 	}
 
 	return detail, err
 }
 
-func Ack(jobId string) (bool, error) {
+func Ack(jobId int64) (bool, error) {
 	job, err := GetJobStuctById(jobId)
 	if err != nil {
 		return false, err
@@ -219,7 +225,7 @@ func AddToJobPool(j *Job) error {
 	return err
 }
 
-func AddToReadyQueue(jobId string) error {
+func AddToReadyQueue(jobId int64) error {
 	conn := Redis.Pool.Get()
 	defer conn.Close()
 
@@ -233,34 +239,34 @@ func AddToReadyQueue(jobId string) error {
 		return 0
 	`
 
-	key := GetJobKeyById(jobId)
+	jobKey := GetJobKeyById(jobId)
 	job, err := GetJobStuctById(jobId)
 	if err != nil {
 		return err
 	}
 
 	if job.Status != JOB_STATUS_DELAY && job.Delay > 0 {
-		return fmt.Errorf("jobKey%v,error:job.status is error", key)
+		return fmt.Errorf("job.key is %v, job.status is %d, expect %d", jobKey, job.Status, JOB_STATUS_DELAY)
 	}
 
 	queue := GetJobQueueByTopic(job.Topic)
 	var ns = redis.NewScript(2, script)
-	_, err = redis.Bool(ns.Do(conn, queue, key, jobId, JOB_STATUS_READY))
+	_, err = redis.Bool(ns.Do(conn, queue, jobKey, jobId, JOB_STATUS_READY))
 
 	return err
 }
 
-func GetTopicByJobId(jobId string) (string, error) {
+func GetTopicByJobId(jobId int64) (string, error) {
 	key := GetJobKeyById(jobId)
 	return Redis.String("HGET", key, "topic")
 }
 
-func GetJobDetailById(jobId string) (map[string]string, error) {
+func GetJobDetailById(jobId int64) (map[string]string, error) {
 	key := GetJobKeyById(jobId)
 	return Redis.StringMap("HGETALL", key)
 }
 
-func GetJobStuctById(jobId string) (*Job, error) {
+func GetJobStuctById(jobId int64) (*Job, error) {
 	detail, err := GetJobDetailById(jobId)
 	if err != nil {
 		return nil, err
@@ -283,7 +289,7 @@ func GetJobStuctById(jobId string) (*Job, error) {
 		return nil, err
 	}
 	return &Job{
-		Id:         detail["id"],
+		Id:         jobId,
 		Topic:      detail["topic"],
 		Delay:      delay,
 		TTR:        TTR,
@@ -293,23 +299,23 @@ func GetJobStuctById(jobId string) (*Job, error) {
 	}, nil
 }
 
-func SetJobStatus(jobId string, status int) error {
+func SetJobStatus(jobId int64, status int) error {
 	key := GetJobKeyById(jobId)
 	_, err := Redis.Do("HSET", key, "status", status)
 	return err
 }
 
-func GetJobStatus(jobId string) (int, error) {
+func GetJobStatus(jobId int64) (int, error) {
 	key := GetJobKeyById(jobId)
 	return Redis.Int("HGET", key, "status")
 }
 
-func IncrJobConsumeNum(jobId string) (bool, error) {
+func IncrJobConsumeNum(jobId int64) (bool, error) {
 	key := GetJobKeyById(jobId)
 	return Redis.Bool("HINCRBY", key, "consume_num", 1)
 }
 
-func GetJobConsumeNum(jobId string) (int, error) {
+func GetJobConsumeNum(jobId int64) (int, error) {
 	key := GetJobKeyById(jobId)
 	return Redis.Int("HGET", key, "consume_num")
 }

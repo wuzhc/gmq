@@ -26,7 +26,11 @@ func (h *HttpApi) Pop(c *HttpServContext) {
 		return
 	}
 
-	jobId := records[1]
+	jobId, err := strconv.ParseInt(records[1], 10, 64)
+	if err != nil {
+		c.JsonErr(err)
+		return
+	}
 	if err := SetJobStatus(jobId, JOB_STATUS_RESERVED); err != nil {
 		c.JsonErr(err)
 		return
@@ -48,12 +52,12 @@ func (h *HttpApi) Pop(c *HttpServContext) {
 	if TTR > 0 {
 		IncrJobConsumeNum(jobId)
 		h.ctx.Dispatcher.addToTTRBucket <- &JobCard{
-			id:    detail["id"],
+			id:    jobId,
 			delay: TTR + 3,
 			topic: detail["topic"],
 		}
 	} else {
-		Ack(detail["id"])
+		Ack(jobId)
 	}
 
 	c.JsonData(detail)
@@ -86,8 +90,8 @@ func (h *HttpApi) Push(c *HttpServContext) {
 // curl http://127.0.0.1:9504/ack?jobId=xxx
 // 确认删除已消费任务
 func (h *HttpApi) Ack(c *HttpServContext) {
-	jobId := c.Get("jobId")
-	if len(jobId) == 0 {
+	jobId := c.GetInt64("jobId")
+	if jobId == 0 {
 		c.JsonErr(errors.New("jobId is empty"))
 		return
 	}

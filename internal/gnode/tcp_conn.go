@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -107,7 +108,7 @@ func (c *TcpConn) handlePackage(pkg *TcpPkg) bool {
 			return c.RespErr(err)
 		}
 
-		return c.RespMsg(job.Id)
+		return c.RespMsg(strconv.FormatInt(job.Id, 10))
 	case CMD_POP:
 		topicStr := string(pkg.Data)
 		if len(topicStr) == 0 {
@@ -127,12 +128,12 @@ func (c *TcpConn) handlePackage(pkg *TcpPkg) bool {
 		}
 	case CMD_ACK:
 		req := struct {
-			JobId string
+			JobId int64
 		}{}
 		if err := c.serv.coder.Decode(pkg.Data, req); err != nil {
 			return c.RespErr(err)
 		}
-		if len(req.JobId) == 0 {
+		if req.JobId == 0 {
 			return c.RespErr(errors.New("job.id is empty"))
 		}
 
