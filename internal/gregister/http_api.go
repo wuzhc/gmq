@@ -75,7 +75,7 @@ func (h *HttpApi) Unregister(c *HttpServContext) {
 		return
 	}
 
-	h.ctx.Gregister.nodes = append(h.ctx.Gregister.nodes[0:index], h.ctx.Gregister.nodes[index:]...)
+	h.ctx.Gregister.nodes = append(h.ctx.Gregister.nodes[0:index], h.ctx.Gregister.nodes[index+1:]...)
 	c.JsonSuccess("success")
 	return
 }

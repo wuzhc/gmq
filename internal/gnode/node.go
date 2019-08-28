@@ -133,6 +133,7 @@ func (gn *Gnode) SetConfig(cfgFile string) {
 	// parse flag
 	flag.StringVar(&cfg.TcpServAddr, "tcp_addr", tcpServAddr, "tcp address")
 	flag.StringVar(&cfg.HttpServAddr, "http_addr", httpServAddr, "http address")
+	flag.Int64Var(&cfg.NodeId, "node_id", 1, "node unique id")
 	flag.Parse()
 
 	gn.cfg = cfg
