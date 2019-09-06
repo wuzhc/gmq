@@ -48,6 +48,8 @@ func (c *TcpConn) Handle() {
 	c.wg.Wrap(c.router)
 
 	scanner := bufio.NewScanner(c.conn)
+	// buf := make([]byte, 12288000)
+	// scanner.Buffer(buf, bufio.MaxScanTokenSize)
 	scanner.Split(func(data []byte, atEOF bool) (advance int, token []byte, err error) {
 		// c.serv.ctx.Logger.Warn(len(data), string(data))
 		if len(data) > 4 && !atEOF && bytes.Equal(data[:4], []byte{'v', '1', '1', '1'}) {

@@ -128,11 +128,12 @@ func (gn *Gnode) SetConfig(cfgFile string) {
 	cfg.TcpServWeight, _ = c.Section("tcp_server").Key("weight").Int()
 
 	// register config
-	cfg.GregisterAddr = c.Section("gregister").Key("addr").String()
+	registerAddr := c.Section("gregister").Key("addr").String()
 
 	// parse flag
 	flag.StringVar(&cfg.TcpServAddr, "tcp_addr", tcpServAddr, "tcp address")
 	flag.StringVar(&cfg.HttpServAddr, "http_addr", httpServAddr, "http address")
+	flag.StringVar(&cfg.GregisterAddr, "register_addr", registerAddr, "register address")
 	flag.Int64Var(&cfg.NodeId, "node_id", 1, "node unique id")
 	flag.Parse()
 
@@ -143,8 +144,9 @@ func (gn *Gnode) SetConfig(cfgFile string) {
 func (gn *Gnode) SetDefaultConfig() {
 	cfg := new(configs.GnodeConfig)
 
-	flag.StringVar(&gn.cfg.TcpServAddr, "tcp_addr", "", "tcp address")
-	flag.StringVar(&gn.cfg.HttpServAddr, "http_addr", "", "http address")
+	flag.StringVar(&cfg.TcpServAddr, "tcp_addr", "", "tcp address")
+	flag.StringVar(&cfg.GregisterAddr, "register_addr", "", "register address")
+	flag.StringVar(&cfg.HttpServAddr, "http_addr", "", "http address")
 	flag.Parse()
 
 	gn.cfg = cfg
