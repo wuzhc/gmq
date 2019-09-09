@@ -213,15 +213,7 @@ func Push(j string) error {
 }
 
 func AddToJobPool(j *Job) error {
-	isExist, err := Redis.Bool("EXISTS", j.Key())
-	if err != nil {
-		return err
-	}
-	if isExist {
-		return fmt.Errorf(fmt.Sprintf("job.id %v has exist", j.Key()))
-	}
-
-	_, err = Redis.Do("HMSET", redis.Args{}.Add(j.Key()).AddFlat(j)...)
+	_, err := Redis.Do("HMSET", redis.Args{}.Add(j.Key()).AddFlat(j)...)
 	return err
 }
 

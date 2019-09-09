@@ -12,6 +12,10 @@ import (
 	"strconv"
 	"sync"
 
+	// "sync/atomic"
+	"time"
+
+	"github.com/gomodule/redigo/redis"
 	"github.com/wuzhc/gmq/pkg/logs"
 	"github.com/wuzhc/gmq/pkg/utils"
 )
@@ -32,6 +36,10 @@ type Dispatcher struct {
 	ctx            *Context
 	mux            sync.RWMutex
 	wg             utils.WaitGroupWrapper
+	memoryJobChan  chan *Job
+	num            int64
+	conn           redis.Conn
+	queue          *ItemQueue
 }
 
 func NewDispatcher(ctx *Context) *Dispatcher {
@@ -46,9 +54,14 @@ func NewDispatcher(ctx *Context) *Dispatcher {
 		addToTTRBucket: make(chan *JobCard),
 		exitChan:       make(chan struct{}),
 		ctx:            ctx,
+		memoryJobChan:  make(chan *Job, 2),
+		conn:           Redis.Pool.Get(),
+		queue:          NewItemQueue(),
 	}
 
 	ctx.Dispatcher = dispatcher
+	go dispatcher.flushJob()
+	go dispatcher.flushJobResult()
 	return dispatcher
 }
 
@@ -137,12 +150,54 @@ func (d *Dispatcher) AddToJobPool(j *Job) error {
 	if err := j.Validate(); err != nil {
 		return err
 	}
-	if err := AddToJobPool(j); err != nil {
-		return err
+
+	select {
+	case d.memoryJobChan <- j:
+	default:
+		if err := AddToJobPool(j); err != nil {
+			return err
+		}
 	}
 
-	d.addToBucket <- j.Card()
 	return nil
+}
+
+func (d *Dispatcher) flushJob() {
+	defer func() {
+		d.LogError("lookup exit..")
+	}()
+	for {
+		select {
+		case <-d.ctx.Gnode.exitChan:
+			d.LogInfo("Dispather lookup exit.")
+			return
+		case <-time.After(1 * time.Second):
+			d.conn.Flush()
+		case j := <-d.memoryJobChan: // 高并发情况下可能会写满4096字节或者1秒后刷盘,当两个事件都准备好时,随机执行其中一个io
+			d.conn.Send("HMSET", redis.Args{}.Add(j.Key()).AddFlat(j)...)
+			d.queue.Push(j.Card())
+		}
+	}
+}
+
+func (d *Dispatcher) flushJobResult() {
+	for {
+		if d.conn.Err() != nil {
+			return
+		}
+		rs, err := redis.String(d.conn.Receive())
+		if err != nil {
+			d.LogError(err)
+			continue
+		}
+		if rs != "OK" {
+			d.LogError("Push job pool failed")
+			continue
+		}
+		if card := d.queue.Pop(); card != nil {
+			d.addToBucket <- card
+		}
+	}
 }
 
 func (d *Dispatcher) GetBuckets() []*Bucket {
