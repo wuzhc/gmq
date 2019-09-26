@@ -1,36 +1,26 @@
-// 功能:
-// 	- tcp粘包处理,TCP连接是长连接，即一次连接多次发送数据。
-// 	- job消息序列化处理(json, glob, protocol)
 package gnode
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"net"
 	"sync"
 
-	"github.com/wuzhc/gmq/pkg/coder"
 	"github.com/wuzhc/gmq/pkg/logs"
 	"github.com/wuzhc/gmq/pkg/utils"
 )
 
 type TcpServ struct {
 	ctx      *Context
-	coder    coder.Coder
 	wg       utils.WaitGroupWrapper
 	mux      sync.RWMutex
-	m        map[string][]net.Conn
-	ch       chan string
 	exitChan chan struct{}
-	closed   bool
 }
 
 func NewTcpServ(ctx *Context) *TcpServ {
 	return &TcpServ{
 		ctx:      ctx,
-		coder:    coder.New(ctx.Conf.TcpServCoder),
-		m:        make(map[string][]net.Conn),
-		ch:       make(chan string),
 		exitChan: make(chan struct{}),
 	}
 }
@@ -50,36 +40,30 @@ func (s *TcpServ) Run() {
 	}
 
 	go func() {
-		<-s.ctx.Gnode.exitChan
-		s.exit()
+		select {
+		case <-s.ctx.Gnode.exitChan:
+			close(s.exitChan)
+		case <-s.exitChan:
+		}
 		listen.Close()
 	}()
 
 	for {
 		conn, err := listen.Accept()
 		if err != nil {
-			if s.closed {
-				return
-			} else {
-				s.LogError(err)
-				continue
-			}
+			s.LogError(err)
+			break
 		}
 
 		tcpConn := &TcpConn{
 			conn:     conn,
 			serv:     s,
-			doChan:   make(chan *TcpPkg),
 			exitChan: make(chan struct{}),
+			reader:   bufio.NewReaderSize(conn, 16*1024),
+			writer:   bufio.NewWriterSize(conn, 16*1024),
 		}
-
 		s.wg.Wrap(tcpConn.Handle)
 	}
-}
-
-func (s *TcpServ) exit() {
-	s.closed = true
-	close(s.exitChan)
 }
 
 func (s *TcpServ) LogError(msg interface{}) {

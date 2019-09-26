@@ -2,6 +2,7 @@ package configs
 
 type GnodeConfig struct {
 	NodeId int64
+	BGSave string
 
 	// redis
 	RedisMaxIdle     int    `gmq:"redis_max_idle" def:"3"`
@@ -49,6 +50,10 @@ func (c *GnodeConfig) Validate() {
 }
 
 func (c *GnodeConfig) SetDefault() {
+	if len(c.BGSave) == 0 {
+		c.BGSave = "30-100,150-10,300-1"
+	}
+
 	// bucket default config
 	if c.BucketNum <= 0 {
 		c.BucketNum = 3

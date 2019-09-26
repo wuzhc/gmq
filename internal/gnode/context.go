@@ -10,5 +10,4 @@ type Context struct {
 	Dispatcher *Dispatcher
 	Conf       *configs.GnodeConfig
 	Logger     *logs.Dispatcher
-	RedisDB    *RedisDB
 }

@@ -1,7 +1,3 @@
-// http server,包括路由注册,监听,处理请求
-// http server几个概念
-// - handler(具有serverHttp方法),包括handler对象,handler函数,handler处理器
-// - serverMux,用于调用handler的serverHttp方法
 package gnode
 
 import (

@@ -51,10 +51,9 @@ func (gn *Gnode) Run() {
 	}
 
 	ctx := &Context{
-		Gnode:   gn,
-		Conf:    gn.cfg,
-		Logger:  gn.initLogger(),
-		RedisDB: gn.initRedisPool(),
+		Gnode:  gn,
+		Conf:   gn.cfg,
+		Logger: gn.initLogger(),
 	}
 
 	gn.wg.Wrap(NewDispatcher(ctx).Run)
@@ -95,6 +94,7 @@ func (gn *Gnode) SetConfig(cfgFile string) {
 
 	// node
 	cfg.NodeId, _ = c.Section("node").Key("id").Int64()
+	cfg.BGSave = c.Section("node").Key("bgsave").String()
 
 	// log config
 	cfg.LogFilename = c.Section("log").Key("filename").String()
@@ -177,10 +177,6 @@ func (gn *Gnode) initLogger() *logs.Dispatcher {
 		}
 	}
 	return logger
-}
-
-func (gn *Gnode) initRedisPool() *RedisDB {
-	return Redis.InitPool(gn.cfg)
 }
 
 type rs struct {

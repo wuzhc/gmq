@@ -3,7 +3,7 @@ package gnode
 import (
 	"encoding/json"
 	"errors"
-	"strconv"
+	"time"
 )
 
 type HttpApi struct {
@@ -19,48 +19,20 @@ func (h *HttpApi) Pop(c *HttpServContext) {
 		return
 	}
 
-	queue := GetJobQueueByTopic(topic)
-	records, err := Redis.Strings("BRPOP", queue, h.ctx.Conf.RedisPopInterVal)
+	t := h.ctx.Dispatcher.GetTopic(topic)
+	j, err := t.Pop()
 	if err != nil {
 		c.JsonErr(err)
 		return
 	}
 
-	jobId, err := strconv.ParseInt(records[1], 10, 64)
-	if err != nil {
-		c.JsonErr(err)
-		return
-	}
-	if err := SetJobStatus(jobId, JOB_STATUS_RESERVED); err != nil {
-		c.JsonErr(err)
-		return
-	}
-	detail, err := GetJobDetailById(jobId)
-	if err != nil {
-		c.JsonErr(err)
-		return
+	// if topic.isAutoAck is false, add to waiting queue
+	if !t.isAutoAck {
+		score := int(time.Now().Unix()) + j.TTR
+		h.ctx.Dispatcher.waitAckMQ.Insert(j, score)
 	}
 
-	// TTR表示job执行超时时间(即消费者读取到job到确认删除这段时间)
-	// TTR>0时,若执行时间超过TTR,将重新添加到ready_queue,然后再次被消费
-	// TTR<=0时,消费者读取到job时,即会删除任务池中的job单元
-	TTR, err := strconv.Atoi(detail["TTR"])
-	if err != nil {
-		c.JsonErr(err)
-		return
-	}
-	if TTR > 0 {
-		IncrJobConsumeNum(jobId)
-		h.ctx.Dispatcher.addToTTRBucket <- &JobCard{
-			id:    jobId,
-			delay: TTR + 3,
-			topic: detail["topic"],
-		}
-	} else {
-		Ack(jobId)
-	}
-
-	c.JsonData(detail)
+	c.JsonData(j)
 	return
 }
 
@@ -88,7 +60,6 @@ func (h *HttpApi) Push(c *HttpServContext) {
 }
 
 // curl http://127.0.0.1:9504/ack?jobId=xxx
-// 确认删除已消费任务
 func (h *HttpApi) Ack(c *HttpServContext) {
 	jobId := c.GetInt64("jobId")
 	if jobId == 0 {
@@ -96,15 +67,10 @@ func (h *HttpApi) Ack(c *HttpServContext) {
 		return
 	}
 
-	res, err := Ack(jobId)
-	if err != nil {
-		c.JsonErr(err)
-		return
-	}
-
-	if res {
-		c.JsonSuccess("ack success")
+	j := h.ctx.Dispatcher.waitAckMQ.PopByJobId(jobId)
+	if j == nil {
+		c.JsonErr(errors.New("job is not exist"))
 	} else {
-		c.JsonErr(errors.New("ack failed"))
+		c.JsonSuccess("success")
 	}
 }
