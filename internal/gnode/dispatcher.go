@@ -3,7 +3,6 @@ package gnode
 import (
 	"errors"
 	"sync"
-	"time"
 
 	"github.com/wuzhc/gmq/pkg/logs"
 	"github.com/wuzhc/gmq/pkg/utils"
@@ -16,15 +15,10 @@ var (
 )
 
 type Dispatcher struct {
-	snowflake     *utils.Snowflake
-	exitChan      chan struct{}
-	ctx           *Context
-	mux           sync.RWMutex
-	wg            utils.WaitGroupWrapper
-	memoryJobChan chan *Job
-	delayMQ       *skiplist
-	waitAckMQ     *skiplist
-	topics        map[string]*Topic
+	ctx       *Context
+	topics    map[string]*Topic
+	snowflake *utils.Snowflake
+	sync.Mutex
 }
 
 func NewDispatcher(ctx *Context) *Dispatcher {
@@ -34,13 +28,9 @@ func NewDispatcher(ctx *Context) *Dispatcher {
 	}
 
 	dispatcher := &Dispatcher{
-		snowflake:     sn,
-		exitChan:      make(chan struct{}),
-		ctx:           ctx,
-		memoryJobChan: make(chan *Job, 2),
-		delayMQ:       NewSkiplist(ctx, "delay-mq"),
-		waitAckMQ:     NewSkiplist(ctx, "wait-ack-mq"),
-		topics:        make(map[string]*Topic),
+		ctx:       ctx,
+		topics:    make(map[string]*Topic),
+		snowflake: sn,
 	}
 
 	ctx.Dispatcher = dispatcher
@@ -48,40 +38,22 @@ func NewDispatcher(ctx *Context) *Dispatcher {
 }
 
 func (d *Dispatcher) Run() {
-	defer func() {
-		d.wg.Wait()
-		d.LogInfo("Dispatcher exit.")
-	}()
+	defer d.LogInfo("Dispatcher exit.")
 
 	for {
 		select {
 		case <-d.ctx.Gnode.exitChan:
-			close(d.exitChan)
 			for _, t := range d.topics {
 				t.exit()
 			}
 			return
-		case j := <-d.memoryJobChan:
-			if j.Delay > 0 {
-				score := int(time.Now().Unix()) + j.Delay
-				d.delayMQ.Insert(j, score)
-			} else {
-				topic := d.GetTopic(j.Topic)
-				topic.Push(j)
-			}
-		case j := <-d.delayMQ.ch:
-			topic := d.GetTopic(j.Topic)
-			topic.Push(j)
-		case j := <-d.waitAckMQ.ch:
-			topic := d.GetTopic(j.Topic)
-			topic.Push(j)
 		}
 	}
 }
 
 func (d *Dispatcher) GetTopic(name string) *Topic {
-	d.mux.Lock()
-	defer d.mux.Unlock()
+	d.Lock()
+	defer d.Unlock()
 
 	if t, ok := d.topics[name]; ok {
 		return t
@@ -90,18 +62,6 @@ func (d *Dispatcher) GetTopic(name string) *Topic {
 	t := NewTopic(name, d.ctx)
 	d.topics[name] = t
 	return t
-}
-
-func (d *Dispatcher) AddToJobPool(j *Job) error {
-	if j.Id == 0 {
-		j.Id = d.snowflake.Generate()
-	}
-	if err := j.Validate(); err != nil {
-		return err
-	}
-
-	d.memoryJobChan <- j
-	return nil
 }
 
 func (d *Dispatcher) LogError(msg interface{}) {

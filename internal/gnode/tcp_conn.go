@@ -143,7 +143,9 @@ func (c *TcpConn) PUB(params [][]byte) error {
 		TTR:   ttr,
 		Body:  body,
 	}
-	if err := c.serv.ctx.Dispatcher.AddToJobPool(j); err != nil {
+
+	t := c.serv.ctx.Dispatcher.GetTopic(topic)
+	if err := t.Push(j); err != nil {
 		c.LogError(err)
 		c.RespErr(err)
 	} else {
@@ -171,7 +173,7 @@ func (c *TcpConn) POP(params [][]byte) error {
 	// if topic.isAutoAck is false, add to waiting queue
 	if !t.isAutoAck {
 		score := int(time.Now().Unix()) + j.TTR
-		c.serv.ctx.Dispatcher.waitAckMQ.Insert(j, score)
+		t.waitAckMQ.Insert(j, score)
 	}
 
 	c.RespJob(j)
@@ -180,14 +182,17 @@ func (c *TcpConn) POP(params [][]byte) error {
 
 // ack <job_id>
 func (c *TcpConn) ACK(params [][]byte) error {
-	if len(params) != 1 {
+	if len(params) != 2 {
 		return errors.New("ack params is error")
 	}
 
 	// find job.id
 	// remove job by job.id
 	jobId, _ := strconv.ParseInt(string(params[0]), 10, 64)
-	j := c.serv.ctx.Dispatcher.waitAckMQ.PopByJobId(jobId)
+	topic := string(params[1])
+
+	t := c.serv.ctx.Dispatcher.GetTopic(topic)
+	j := t.waitAckMQ.PopByJobId(jobId)
 	if j == nil {
 		c.RespErr(errors.New("job is not exist"))
 	} else {

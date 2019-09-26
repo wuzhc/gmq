@@ -4,6 +4,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -11,21 +12,26 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/wuzhc/gmq/pkg/utils"
+
 	"github.com/wuzhc/gmq/pkg/logs"
 )
 
 type Topic struct {
 	Name           string
-	MessageChan    chan *Job
-	LikedList      *LikedList
 	ctx            *Context
 	pushNum        int32
 	isPersist      bool
 	isAutoAck      bool
+	MessageChan    chan *Job
 	exitChan       chan struct{}
 	dec            *gob.Decoder
 	enc            *gob.Encoder
 	reader, writer *os.File
+	LikedList      *LikedList
+	delayMQ        *skiplist
+	waitAckMQ      *skiplist
+	wg             utils.WaitGroupWrapper
 	sync.Mutex
 }
 
@@ -33,12 +39,16 @@ func NewTopic(name string, ctx *Context) *Topic {
 	t := &Topic{
 		ctx:         ctx,
 		Name:        name,
-		MessageChan: make(chan *Job),
 		LikedList:   NewLikedList(ctx),
 		isPersist:   true,
 		isAutoAck:   true,
 		exitChan:    make(chan struct{}),
+		MessageChan: make(chan *Job),
+		delayMQ:     NewSkiplist(ctx, fmt.Sprintf("%s-delayMQ", name)),
+		waitAckMQ:   NewSkiplist(ctx, fmt.Sprintf("%s-waitAckMQ", name)),
 	}
+
+	t.wg.Wrap(t.messageLoop)
 
 	// load data from disk if it is not empty
 	if t.isPersist {
@@ -59,7 +69,9 @@ func NewTopic(name string, ctx *Context) *Topic {
 		var jobs []*Job
 		err = t.dec.Decode(&jobs)
 		if err != nil {
-			t.LogError(err)
+			if err != io.EOF {
+				t.LogError(err)
+			}
 			return t
 		}
 
@@ -67,22 +79,52 @@ func NewTopic(name string, ctx *Context) *Topic {
 			t.LikedList.Push(j)
 		}
 
-		go t.persist()
+		t.wg.Wrap(t.persist)
 	}
 
 	return t
 }
 
+func (t *Topic) messageLoop() {
+	for {
+		select {
+		case j := <-t.delayMQ.ch:
+			t.Push(j)
+		case j := <-t.waitAckMQ.ch:
+			t.Push(j)
+		case <-t.exitChan:
+			return
+		}
+	}
+}
+
 func (t *Topic) exit() {
 	close(t.exitChan)
 	t.LikedList.exit()
+	t.delayMQ.exit()
+	t.waitAckMQ.exit()
 	t.writer.Close()
 	t.reader.Close()
+	t.wg.Wait()
 }
 
-func (t *Topic) Push(j *Job) {
-	t.LikedList.Push(j)
+func (t *Topic) Push(j *Job) error {
+	if j.Id == 0 {
+		j.Id = t.ctx.Dispatcher.snowflake.Generate()
+	}
+	if err := j.Validate(); err != nil {
+		return err
+	}
+
+	if j.Delay > 0 {
+		score := int(time.Now().Unix()) + j.Delay
+		t.delayMQ.Insert(j, score)
+	} else {
+		t.LikedList.Push(j)
+	}
+
 	atomic.AddInt32(&t.pushNum, 1)
+	return nil
 }
 
 func (t *Topic) Pop() (*Job, error) {
@@ -131,6 +173,8 @@ func (t *Topic) persist() {
 			if j > secs[i] && i < l-1 {
 				i++ // next threshold
 			}
+		case <-t.exitChan:
+			return
 		}
 	}
 }

@@ -14,13 +14,14 @@ var (
 type Elem *Job
 
 type skiplist struct {
-	name  string
-	ch    chan Elem
-	ctx   *Context
-	rand  *rand.Rand
-	head  *skiplistNode // header point
-	size  int
-	level int
+	name     string
+	ch       chan Elem
+	ctx      *Context
+	rand     *rand.Rand
+	head     *skiplistNode // header point
+	size     int
+	level    int
+	exitChan chan struct{}
 }
 
 type skiplistNode struct {
@@ -34,6 +35,7 @@ func NewSkiplist(ctx *Context, name string) *skiplist {
 	sl.level = 32
 	sl.ch = make(chan Elem)
 	sl.ctx = ctx
+	sl.exitChan = make(chan struct{})
 	sl.name = name
 	sl.head = &skiplistNode{forwards: make([]*skiplistNode, 32)}
 	sl.rand = rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -42,10 +44,14 @@ func NewSkiplist(ctx *Context, name string) *skiplist {
 	return sl
 }
 
+func (s *skiplist) exit() {
+	close(s.exitChan)
+}
+
 func (s *skiplist) timer() {
 	for {
 		select {
-		case <-s.ctx.Dispatcher.exitChan:
+		case <-s.exitChan:
 			return
 		default:
 			// fmt.Println(fmt.Sprintf("%s total:%v", s.name, s.size))

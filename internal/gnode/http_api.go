@@ -29,7 +29,7 @@ func (h *HttpApi) Pop(c *HttpServContext) {
 	// if topic.isAutoAck is false, add to waiting queue
 	if !t.isAutoAck {
 		score := int(time.Now().Unix()) + j.TTR
-		h.ctx.Dispatcher.waitAckMQ.Insert(j, score)
+		t.waitAckMQ.Insert(j, score)
 	}
 
 	c.JsonData(j)
@@ -51,7 +51,8 @@ func (h *HttpApi) Push(c *HttpServContext) {
 		return
 	}
 
-	if err := h.ctx.Dispatcher.AddToJobPool(job); err != nil {
+	t := h.ctx.Dispatcher.GetTopic(job.Topic)
+	if err := t.Push(job); err != nil {
 		c.JsonErr(err)
 		return
 	}
@@ -59,15 +60,21 @@ func (h *HttpApi) Push(c *HttpServContext) {
 	c.JsonSuccess("push success")
 }
 
-// curl http://127.0.0.1:9504/ack?jobId=xxx
+// curl http://127.0.0.1:9504/ack?jobId=xxx&topic=xxx
 func (h *HttpApi) Ack(c *HttpServContext) {
 	jobId := c.GetInt64("jobId")
 	if jobId == 0 {
 		c.JsonErr(errors.New("jobId is empty"))
 		return
 	}
+	topic := c.Get("topic")
+	if len(topic) == 0 {
+		c.JsonErr(errors.New("topic is empty"))
+		return
+	}
 
-	j := h.ctx.Dispatcher.waitAckMQ.PopByJobId(jobId)
+	t := h.ctx.Dispatcher.GetTopic(topic)
+	j := t.waitAckMQ.PopByJobId(jobId)
 	if j == nil {
 		c.JsonErr(errors.New("job is not exist"))
 	} else {
