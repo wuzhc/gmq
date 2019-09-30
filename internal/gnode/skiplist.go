@@ -11,65 +11,37 @@ var (
 	ErrEmpty = errors.New("skiplist is empty")
 )
 
-type Elem *Job
-
 type skiplist struct {
-	name     string
-	ch       chan Elem
-	ctx      *Context
-	rand     *rand.Rand
-	head     *skiplistNode // header point
-	size     int
-	level    int
-	exitChan chan struct{}
+	name  string
+	ch    chan *Job
+	ctx   *Context
+	rand  *rand.Rand
+	head  *skiplistNode // header point
+	size  int
+	level int
+	// exitChan chan struct{}
 }
 
 type skiplistNode struct {
 	score    int
-	value    Elem
+	value    *Job
 	forwards []*skiplistNode // forward points
 }
 
 func NewSkiplist(ctx *Context, name string) *skiplist {
 	sl := &skiplist{}
 	sl.level = 32
-	sl.ch = make(chan Elem)
+	sl.ch = make(chan *Job)
 	sl.ctx = ctx
-	sl.exitChan = make(chan struct{})
 	sl.name = name
 	sl.head = &skiplistNode{forwards: make([]*skiplistNode, 32)}
 	sl.rand = rand.New(rand.NewSource(time.Now().UnixNano()))
 
-	go sl.timer()
 	return sl
 }
 
-func (s *skiplist) exit() {
-	close(s.exitChan)
-}
-
-func (s *skiplist) timer() {
-	for {
-		select {
-		case <-s.exitChan:
-			return
-		default:
-			// fmt.Println(fmt.Sprintf("%s total:%v", s.name, s.size))
-			for {
-				j, err := s.Arrival(int(time.Now().Unix()))
-				if j != nil && err == nil {
-					s.ch <- j
-				} else {
-					time.Sleep(1 * time.Second)
-					break
-				}
-			}
-		}
-	}
-}
-
 // search by score
-func (s *skiplist) Search(score int) Elem {
+func (s *skiplist) Search(score int) *Job {
 	x := s.head
 	for i := s.level - 1; i >= 0; i-- {
 		for {
@@ -89,7 +61,7 @@ func (s *skiplist) Search(score int) Elem {
 	}
 }
 
-func (s *skiplist) PopByJobId(jobId int64) Elem {
+func (s *skiplist) PopByJobId(jobId int64) *Job {
 	var target *skiplistNode
 	x := s.head.forwards[0]
 	for x != nil {
@@ -126,7 +98,7 @@ func (s *skiplist) PopByJobId(jobId int64) Elem {
 	return target.value
 }
 
-func (s *skiplist) Insert(value Elem, score int) bool {
+func (s *skiplist) Insert(value *Job, score int) bool {
 	var updates = make(map[int]*skiplistNode)
 	x := s.head
 	for i := s.level - 1; i >= 0; i-- {
@@ -149,11 +121,12 @@ func (s *skiplist) Insert(value Elem, score int) bool {
 	}
 
 	s.size++
+	updates = nil
 	return true
 }
 
 // remove frist node
-func (s *skiplist) Shift() (Elem, error) {
+func (s *skiplist) Shift() (*Job, error) {
 	if s.size == 0 {
 		return nil, ErrEmpty
 	}
@@ -168,8 +141,11 @@ func (s *skiplist) Shift() (Elem, error) {
 }
 
 // remove arrtival node
-func (s *skiplist) Arrival(score int) (Elem, error) {
+func (s *skiplist) Arrival(score int) (*Job, error) {
 	if s.size == 0 {
+		return nil, ErrEmpty
+	}
+	if s.head.forwards[0] == nil {
 		return nil, ErrEmpty
 	}
 

@@ -48,7 +48,7 @@ func NewTopic(name string, ctx *Context) *Topic {
 		waitAckMQ:   NewSkiplist(ctx, fmt.Sprintf("%s-waitAckMQ", name)),
 	}
 
-	t.wg.Wrap(t.messageLoop)
+	// t.wg.Wrap(t.messageLoop)
 
 	// load data from disk if it is not empty
 	if t.isPersist {
@@ -85,24 +85,24 @@ func NewTopic(name string, ctx *Context) *Topic {
 	return t
 }
 
-func (t *Topic) messageLoop() {
-	for {
-		select {
-		case j := <-t.delayMQ.ch:
-			t.Push(j)
-		case j := <-t.waitAckMQ.ch:
-			t.Push(j)
-		case <-t.exitChan:
-			return
-		}
-	}
-}
+// func (t *Topic) messageLoop() {
+// 	for {
+// 		select {
+// 		case j := <-t.delayMQ.ch:
+// 			t.Push(j)
+// 		case j := <-t.waitAckMQ.ch:
+// 			t.Push(j)
+// 		case <-t.exitChan:
+// 			return
+// 		}
+// 	}
+// }
 
 func (t *Topic) exit() {
 	close(t.exitChan)
 	t.LikedList.exit()
-	t.delayMQ.exit()
-	t.waitAckMQ.exit()
+	// t.delayMQ.exit()
+	// t.waitAckMQ.exit()
 	t.writer.Close()
 	t.reader.Close()
 	t.wg.Wait()

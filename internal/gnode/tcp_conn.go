@@ -137,11 +137,14 @@ func (c *TcpConn) PUB(params [][]byte) error {
 		return errors.New(fmt.Sprintf("read body failed, %v", err))
 	}
 
+	cb := make([]byte, len(body))
+	copy(cb, body)
+
 	j := &Job{
 		Topic: topic,
 		Delay: delay,
 		TTR:   ttr,
-		Body:  body,
+		Body:  cb,
 	}
 
 	t := c.serv.ctx.Dispatcher.GetTopic(topic)
@@ -238,6 +241,7 @@ func (c *TcpConn) RespJob(job *Job) bool {
 	data = append(data, job.Body)
 	data = append(data, []byte(strconv.Itoa(job.ConsumeNum)))
 	c.Response(RESP_JOB, bytes.Join(data, []byte{' '}))
+	job = nil
 	return true
 }
 

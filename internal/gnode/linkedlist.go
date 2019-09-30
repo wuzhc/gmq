@@ -158,7 +158,10 @@ func (l *LikedList) shift() (*Job, error) {
 	nextNode := firstNode.Next
 	l.Front.Next = nextNode
 	l.Size--
-	return firstNode.Data, nil
+
+	j := firstNode.Data
+	firstNode = nil
+	return j, nil
 }
 
 func (l *LikedList) timer() {
