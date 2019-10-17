@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	bolt "github.com/wuzhc/bbolt"
 	"github.com/wuzhc/gmq/pkg/logs"
 	"github.com/wuzhc/gmq/pkg/utils"
 )
@@ -17,10 +18,11 @@ var (
 
 type Dispatcher struct {
 	ctx       *Context
+	poolSize  int
+	db        *bolt.DB
+	wg        utils.WaitGroupWrapper
 	topics    map[string]*Topic
 	snowflake *utils.Snowflake
-	poolSize  int
-	wg        utils.WaitGroupWrapper
 	exitChan  chan struct{}
 	sync.RWMutex
 }
@@ -31,7 +33,13 @@ func NewDispatcher(ctx *Context) *Dispatcher {
 		panic(err)
 	}
 
+	db, err := bolt.Open("gmq.db", 0600, nil)
+	if err != nil {
+		panic(err)
+	}
+
 	dispatcher := &Dispatcher{
+		db:        db,
 		ctx:       ctx,
 		snowflake: sn,
 		topics:    make(map[string]*Topic),
@@ -59,9 +67,11 @@ func (d *Dispatcher) exit() {
 		t.exit()
 	}
 
+	d.db.Close()
 	d.wg.Wait()
 }
 
+// 获取指定名称topic
 func (d *Dispatcher) GetTopic(name string) *Topic {
 	d.RLock()
 	defer d.RUnlock()
@@ -75,6 +85,7 @@ func (d *Dispatcher) GetTopic(name string) *Topic {
 	return t
 }
 
+// 获取所有topic
 func (d *Dispatcher) GetTopics() []*Topic {
 	d.RLock()
 	defer d.RUnlock()
@@ -86,22 +97,32 @@ func (d *Dispatcher) GetTopics() []*Topic {
 	return topics
 }
 
-// timing polling scan
-// from redis algorithm
-// pool -> worker -> workCh
-//				  -> closeCh
-// 				  -> responseCh
+// 获取有延迟消息的topic
+func (d *Dispatcher) GetHasDelayMsgTopics() []*Topic {
+	d.RLock()
+	defer d.RUnlock()
+
+	var topics []*Topic
+	for _, t := range d.topics {
+		if t.delayMQ.Size() > 0 {
+			topics = append(topics, t)
+		}
+	}
+	return topics
+}
+
+// 定时扫描各个topic队列延迟消息
 func (d *Dispatcher) scanLoop() {
 	selectNum := 20
 
-	workCh := make(chan *Topic, selectNum)   // distribute topic to worker
-	responseCh := make(chan bool, selectNum) // worker done and response
-	closeCh := make(chan int)                // notify workers to exit
-	scanTicker := time.NewTicker(1 * time.Second)
-	freshTicker := time.NewTicker(10 * time.Second)
+	workCh := make(chan *Topic, selectNum)          // 用于分发topic给worker处理
+	responseCh := make(chan bool, selectNum)        // 用于worker处理完任务后响应
+	closeCh := make(chan int)                       // 用于通知worker退出
+	scanTicker := time.NewTicker(1 * time.Second)   // 定时扫描时间
+	freshTicker := time.NewTicker(10 * time.Second) // 刷新topic集合
 
 	topics := d.GetTopics()
-	d.resizePool(len(topics), workCh, closeCh, responseCh) // init pool and worker
+	d.resizePool(len(topics), workCh, closeCh, responseCh)
 
 	for {
 		select {
@@ -113,20 +134,20 @@ func (d *Dispatcher) scanLoop() {
 			}
 		case <-freshTicker.C:
 			topics = d.GetTopics()
-			// d.LogInfo("start fresh-ticker", len(topics))
 			d.resizePool(len(topics), workCh, closeCh, responseCh)
 			continue
 		}
 
-		// rand topics
 		if selectNum > len(topics) {
 			selectNum = len(topics)
 		}
 	loop:
+		// 从topic集合中随机挑选selectNum个topic给worker处理
 		for _, i := range utils.UniqRands(selectNum, len(topics)) {
 			workCh <- topics[i]
 		}
 
+		// 记录worker能够正常处理的topic个数
 		hasMsgNum := 0
 		for i := 0; i < selectNum; i++ {
 			if <-responseCh {
@@ -134,55 +155,48 @@ func (d *Dispatcher) scanLoop() {
 			}
 		}
 
+		// 如果已处理个数超过选择topic个数的四分之一,说明这批topic还是有很大几率有消息的
+		// 继续从这批topic中随机挑选topic执行就可以了,否则进入下个扫描,重新随机挑选topic处理或刷新topic的值
 		if float64(hasMsgNum)/float64(selectNum) > 0.25 {
 			goto loop
 		}
 	}
 
 exit:
-	close(closeCh) // notify all worker exit
+	// close(closeCh)通知所有worker退出
+	close(closeCh)
 	scanTicker.Stop()
 	freshTicker.Stop()
 }
 
+// worker负责处理延迟消息
 func (d *Dispatcher) scanWorker(workCh chan *Topic, closeCh chan int, responseCh chan bool) {
 	for {
 		select {
 		case <-closeCh:
 			d.poolSize--
 			return
-		case t := <-workCh:
-			var flag bool
-			var j *Job
-			now := int(time.Now().Unix())
-			j, _ = t.delayMQ.Arrival(now)
-			if j != nil {
-				flag = true
-				j.Delay = 0
-				t.Push(j)
+		case topic := <-workCh:
+			err := topic.handleExpireMsg()
+			if err != nil {
+				d.LogInfo(err)
+				responseCh <- false
+			} else {
+				responseCh <- true
 			}
-
-			j, _ = t.waitAckMQ.Arrival(now)
-			if j != nil {
-				flag = true
-				j.Delay = 0
-				t.Push(j)
-			}
-
-			// d.LogInfo("topic-name:", t.Name, "delay-mq-size:", t.delayMQ.size, "wait-ack-mq-size:", t.waitAckMQ.size)
-			responseCh <- flag
 		}
 	}
 }
 
-// resize pool
+// 调整池大小
 func (d *Dispatcher) resizePool(topicNum int, workCh chan *Topic, closeCh chan int, responseCh chan bool) {
+	// 每次处理四分之一数量的topic
 	workerNum := int(float64(topicNum) * 0.25)
 	if workerNum < 1 {
 		workerNum = 1
 	}
 
-	// add worker
+	// topic数量增加,导致需要创建更多的woker数量,启动新的worker并增加池大小
 	if workerNum > d.poolSize {
 		d.LogInfo("add scan-Worker for pool", workerNum, d.poolSize)
 		d.wg.Wrap(func() {
@@ -192,13 +206,36 @@ func (d *Dispatcher) resizePool(topicNum int, workCh chan *Topic, closeCh chan i
 		return
 	}
 
-	// reduce worker
+	// 当需要的woker数量小于池大小时,发送关闭信号到closeCh管道
+	// worker从closeCh管道收到消息后,关闭退出
+	// todo 目前topic是不会自己消失的,所以需要一个机制,当topic没有客户端连接时,关闭topic
 	if workerNum < d.poolSize {
 		d.LogInfo("reduce scan-Worker for pool", workerNum, d.poolSize)
 		for i := d.poolSize - workerNum; i > 0; i-- {
 			closeCh <- 1
 		}
 	}
+}
+
+// 消息推送
+// 每一条消息都需要dispatcher统一分配msg.Id
+func (d *Dispatcher) push(name string, msg []byte, delay int) (int64, error) {
+	msgId := d.snowflake.Generate()
+	topic := d.GetTopic(name)
+	err := topic.push(msgId, msg, delay)
+	return msgId, err
+}
+
+// 消息消费
+func (d *Dispatcher) pop(name string) (int64, []byte, error) {
+	topic := d.GetTopic(name)
+	return topic.pop()
+}
+
+// 消费确认
+func (d *Dispatcher) ack(name string, msgId int64) error {
+	topic := d.GetTopic(name)
+	return topic.ack(msgId)
 }
 
 func (d *Dispatcher) LogError(msg ...interface{}) {

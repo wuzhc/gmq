@@ -3,7 +3,7 @@ package gnode
 import (
 	"encoding/json"
 	"errors"
-	"time"
+	// "time"
 )
 
 type HttpApi struct {
@@ -20,7 +20,7 @@ func (h *HttpApi) Pop(c *HttpServContext) {
 	}
 
 	t := h.ctx.Dispatcher.GetTopic(topic)
-	j, err := t.Pop()
+	msgId, msg, err := t.pop()
 	if err != nil {
 		c.JsonErr(err)
 		return
@@ -28,11 +28,13 @@ func (h *HttpApi) Pop(c *HttpServContext) {
 
 	// if topic.isAutoAck is false, add to waiting queue
 	if !t.isAutoAck {
-		score := int(time.Now().Unix()) + j.TTR
-		t.waitAckMQ.Insert(j, score)
+		if err := t.pushDelayMsg(msgId, msg, 60); err != nil {
+			c.JsonErr(err)
+			return
+		}
 	}
 
-	c.JsonData(j)
+	c.JsonData(msg)
 	return
 }
 
@@ -51,8 +53,7 @@ func (h *HttpApi) Push(c *HttpServContext) {
 		return
 	}
 
-	t := h.ctx.Dispatcher.GetTopic(job.Topic)
-	if err := t.Push(job); err != nil {
+	if _, err := h.ctx.Dispatcher.push(job.Topic, job.Body, job.Delay); err != nil {
 		c.JsonErr(err)
 		return
 	}
@@ -61,23 +62,23 @@ func (h *HttpApi) Push(c *HttpServContext) {
 }
 
 // curl http://127.0.0.1:9504/ack?jobId=xxx&topic=xxx
-func (h *HttpApi) Ack(c *HttpServContext) {
-	jobId := c.GetInt64("jobId")
-	if jobId == 0 {
-		c.JsonErr(errors.New("jobId is empty"))
-		return
-	}
-	topic := c.Get("topic")
-	if len(topic) == 0 {
-		c.JsonErr(errors.New("topic is empty"))
-		return
-	}
+// func (h *HttpApi) Ack(c *HttpServContext) {
+// 	jobId := c.GetInt64("jobId")
+// 	if jobId == 0 {
+// 		c.JsonErr(errors.New("jobId is empty"))
+// 		return
+// 	}
+// 	topic := c.Get("topic")
+// 	if len(topic) == 0 {
+// 		c.JsonErr(errors.New("topic is empty"))
+// 		return
+// 	}
 
-	t := h.ctx.Dispatcher.GetTopic(topic)
-	j := t.waitAckMQ.PopByJobId(jobId)
-	if j == nil {
-		c.JsonErr(errors.New("job is not exist"))
-	} else {
-		c.JsonSuccess("success")
-	}
-}
+// 	t := h.ctx.Dispatcher.GetTopic(topic)
+// 	j := t.waitAckMQ.PopByJobId(jobId)
+// 	if j == nil {
+// 		c.JsonErr(errors.New("job is not exist"))
+// 	} else {
+// 		c.JsonSuccess("success")
+// 	}
+// }

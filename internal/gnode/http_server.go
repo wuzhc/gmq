@@ -35,7 +35,7 @@ func (s *HttpServ) Run() {
 	mux := &HttpServMux{}
 	mux.handle("/pop", api.Pop)
 	mux.handle("/push", api.Push)
-	mux.handle("/ack", api.Ack)
+	// mux.handle("/ack", api.Ack)
 
 	addr := s.ctx.Conf.HttpServAddr
 	serv := &http.Server{

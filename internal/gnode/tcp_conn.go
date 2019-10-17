@@ -86,7 +86,7 @@ func (c *TcpConn) Handle() {
 		case bytes.Equal(cmd, []byte("pop")):
 			err = c.POP(params)
 		case bytes.Equal(cmd, []byte("ack")):
-			err = c.ACK(params)
+			// err = c.ACK(params)
 		default:
 			c.LogError(fmt.Sprintf("unkown cmd: %s", cmd))
 		}
@@ -140,20 +140,11 @@ func (c *TcpConn) PUB(params [][]byte) error {
 	cb := make([]byte, len(body))
 	copy(cb, body)
 
-	j := &Job{
-		Topic: topic,
-		Delay: delay,
-		TTR:   ttr,
-		Body:  cb,
-	}
-
-	t := c.serv.ctx.Dispatcher.GetTopic(topic)
-	if err := t.Push(j); err != nil {
+	if msgId, err := c.serv.ctx.Dispatcher.push(topic, cb, delay); err != nil {
 		c.LogError(err)
 		c.RespErr(err)
 	} else {
-		// c.LogInfo(j.String())
-		c.RespMsg(strconv.FormatInt(j.Id, 10))
+		c.RespMsg(strconv.FormatInt(msgId, 10))
 	}
 
 	return nil
@@ -166,20 +157,22 @@ func (c *TcpConn) POP(params [][]byte) error {
 	}
 
 	topic := string(params[0])
-	t := c.serv.ctx.Dispatcher.GetTopic(topic)
-	j, err := t.Pop()
+	msgId, msg, err := c.serv.ctx.Dispatcher.pop(topic)
 	if err != nil {
 		c.RespErr(err)
 		return nil
 	}
 
 	// if topic.isAutoAck is false, add to waiting queue
+	t := c.serv.ctx.Dispatcher.GetTopic(topic)
 	if !t.isAutoAck {
-		score := int(time.Now().Unix()) + j.TTR
-		t.waitAckMQ.Insert(j, score)
+		if err := t.pushDelayMsg(msgId, msg, 60); err != nil {
+			c.RespErr(err)
+			return nil
+		}
 	}
 
-	c.RespJob(j)
+	c.RespJob22(msgId, msg)
 	return nil
 }
 
@@ -189,17 +182,12 @@ func (c *TcpConn) ACK(params [][]byte) error {
 		return errors.New("ack params is error")
 	}
 
-	// find job.id
-	// remove job by job.id
-	jobId, _ := strconv.ParseInt(string(params[0]), 10, 64)
+	msgId, _ := strconv.ParseInt(string(params[0]), 10, 64)
 	topic := string(params[1])
 
-	t := c.serv.ctx.Dispatcher.GetTopic(topic)
-	j := t.waitAckMQ.PopByJobId(jobId)
-	if j == nil {
-		c.RespErr(errors.New("job is not exist"))
-	} else {
-		c.RespMsg("success")
+	if err := c.serv.ctx.Dispatcher.ack(topic, msgId); err != nil {
+		c.RespErr(err)
+		return nil
 	}
 
 	return nil
@@ -242,6 +230,14 @@ func (c *TcpConn) RespJob(job *Job) bool {
 	data = append(data, []byte(strconv.Itoa(job.ConsumeNum)))
 	c.Response(RESP_JOB, bytes.Join(data, []byte{' '}))
 	job = nil
+	return true
+}
+
+func (c *TcpConn) RespJob22(msgId int64, msg []byte) bool {
+	var data [][]byte
+	data = append(data, msg)
+	data = append(data, []byte(strconv.Itoa(int(msgId))))
+	c.Response(RESP_JOB, bytes.Join(data, []byte{' '}))
 	return true
 }
 
