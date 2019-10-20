@@ -27,7 +27,7 @@ import (
  */
 
 const (
-	twepoch        = int64(1483228800000)             //开始时间截 (2017-01-01)
+	twepoch        = int64(1483228800000)             //开始时间截 (2017-01-01),单位毫秒
 	workeridBits   = uint(10)                         //机器id所占的位数
 	sequenceBits   = uint(12)                         //序列所占的位数
 	workeridMax    = int64(-1 ^ (-1 << workeridBits)) //支持的最大机器id数量

@@ -1,7 +1,6 @@
 package gnode
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -16,15 +15,17 @@ import (
 
 type Topic struct {
 	name       string
+	pushNum    int64
+	popNum     int64
+	startTime  time.Time
 	ctx        *Context
-	pushNum    int32
 	queue      *queue
-	delayMQ    *skiplist
 	wg         utils.WaitGroupWrapper
 	isAutoAck  bool
 	dispatcher *Dispatcher
 	exitChan   chan struct{}
-	delayMap   map[int64]string
+	waitAckMap map[int64]int64
+	waitAckMux sync.Mutex
 	sync.Mutex
 }
 
@@ -34,10 +35,10 @@ func NewTopic(name string, ctx *Context) *Topic {
 		name:       name,
 		isAutoAck:  true,
 		exitChan:   make(chan struct{}),
-		delayMQ:    NewSkiplist(32),
 		queue:      NewQueue(name),
-		delayMap:   make(map[int64]string),
+		waitAckMap: make(map[int64]int64),
 		dispatcher: ctx.Dispatcher,
+		startTime:  time.Now(),
 	}
 
 	t.init()
@@ -45,10 +46,17 @@ func NewTopic(name string, ctx *Context) *Topic {
 }
 
 // 初始化
-// 导入磁盘上延迟消息
+// 初始化bucket
 func (t *Topic) init() {
-	t.LogInfo("init")
-	if err := t.importBucketMsg(); err != nil {
+	err := t.dispatcher.db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte(t.name))
+		if err != nil {
+			return errors.New(fmt.Sprintf("create bucket: %s", err))
+		} else {
+			return nil
+		}
+	})
+	if err != nil {
 		panic(err)
 	}
 }
@@ -59,143 +67,107 @@ func (t *Topic) exit() {
 	t.wg.Wait()
 }
 
-// 导入延迟消息
-func (t *Topic) importBucketMsg() error {
-	return t.dispatcher.db.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket([]byte(t.name))
-		if bucket.Stats().KeyN == 0 {
-			return nil
-		}
-
-		now := time.Now().Unix()
-		c := bucket.Cursor()
-		for k, _ := c.First(); k != nil; k, _ = c.Next() {
-			buf := bytes.Split(k, []byte{'-'})
-			delayTimeBuf, msgIdBuf := buf[0], buf[1]
-			delayTime := binary.BigEndian.Uint64(delayTimeBuf)
-
-			// 1个小时内并且delayMQ长度不超过1000
-			if int64(delayTime)-now < 3600 && t.delayMQ.Size() < 1000 {
-				t.delayMQ.Insert(int64(binary.BigEndian.Uint64(msgIdBuf)), delayTime)
-			}
-		}
-
-		return nil
-	})
-}
-
 // 消息推送
 func (t *Topic) push(msgId int64, msg []byte, delay int) error {
 	if delay > 0 {
 		start := time.Now()
-		err := t.pushDelayMsg(msgId, msg, delay)
+		err := t.pushMsgToBucket(msgId, msg, delay)
 		t.LogWarn(time.Now().Sub(start))
 		return err
 	}
 
 	t.queue.write(msgId, msg)
-	atomic.AddInt32(&t.pushNum, 1)
+	atomic.AddInt64(&t.pushNum, 1)
 	return nil
 }
 
-// 延迟消息推送
+// 消息批量推送
+func (t *Topic) mpush(msgIds []int64, msgs [][]byte, delays []int) error {
+	defer func() {
+		msgs = nil
+		msgIds = nil
+		delays = nil
+	}()
+
+	for i := 0; i < len(msgIds); i++ {
+		if delays[i] == 0 {
+			atomic.AddInt64(&t.pushNum, 1)
+			t.queue.write(msgIds[i], msgs[i])
+			msgs = append(msgs[:i], msgs[i+1:]...)
+			msgIds = append(msgIds[:i], msgIds[i+1:]...)
+			delays = append(delays[:i], delays[i+1:]...)
+		}
+	}
+
+	if len(msgIds) > 0 {
+		start := time.Now()
+		return t.mpushMsgToBucket(msgIds, msgs, delays)
+		t.LogWarn(time.Now().Sub(start))
+	}
+
+	return nil
+}
+
+// bucket.key : delay - msgId
+func creatBucketKey(msgId int64, delay int64) []byte {
+	var buf = make([]byte, 16)
+	binary.BigEndian.PutUint64(buf[:8], uint64(delay))
+	binary.BigEndian.PutUint64(buf[8:], uint64(msgId))
+	return buf
+}
+
+// 解析bucket.key
+func parseBucketKey(key []byte) (int64, int64) {
+	return int64(binary.BigEndian.Uint64(key[:8])), int64(binary.BigEndian.Uint64(key[8:]))
+}
+
+// 延迟消息保存到bucket
 // topic.delayMQ: {key:delayTime,value:msg.Id}
 // db.topic: {key:delayTime-msg.Id,value:msg}
-func (t *Topic) pushDelayMsg(msgId int64, msg []byte, delay int) error {
+func (t *Topic) pushMsgToBucket(msgId int64, msg []byte, delay int) error {
 	return t.dispatcher.db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte(t.name))
 		if err != nil {
 			return errors.New(fmt.Sprintf("create bucket: %s", err))
 		}
 
-		var buf [][]byte
 		bucket := tx.Bucket([]byte(t.name))
-		delayTime := time.Now().Unix() + int64(delay)
-
-		delayBuf := make([]byte, 8)
-		binary.BigEndian.PutUint64(delayBuf, uint64(delayTime))
-		buf = append(buf, delayBuf)
-
-		msgIdBuf := make([]byte, 8)
-		binary.BigEndian.PutUint64(msgIdBuf, uint64(msgId))
-		buf = append(buf, msgIdBuf)
-
-		key := bytes.Join(buf, []byte{'-'})
+		key := creatBucketKey(msgId, int64(delay)+time.Now().Unix())
 		// t.LogInfo(fmt.Sprintf("%v-%v-%v write in bucket", delayTime, msgId, key))
 		if err := bucket.Put(key, msg); err != nil {
 			return err
 		}
 
-		// 1个小时内,并且长度不超过1000
-		if delay < 3600 && t.delayMQ.Size() < 1000 {
-			t.delayMQ.Insert(msgId, uint64(delayTime))
-		}
+		t.waitAckMux.Lock()
+		t.waitAckMap[msgId] = int64(delay) + time.Now().Unix()
+		t.waitAckMux.Unlock()
 
-		buf = nil
-		delayBuf = nil
-		msgIdBuf = nil
 		return nil
 	})
 }
 
-// 处理到期消息
-func (t *Topic) handleExpireMsg() error {
-	delayTime, msgIds, err := t.delayMQ.Exipre(uint64(time.Now().Unix()))
-	if err != nil {
-		if t.delayMQ.Size() == 0 {
-			// 队列已为空,再导入磁盘延迟消息到队列
-			t.importBucketMsg()
-		} else {
-			// 如果磁盘中第一个消息比延迟队列第一个大
-			dtime := t.getBucketFirstMsgTime()
-			if dtime != 0 && int64(dtime) < time.Now().Unix() {
-				t.delayMQ.Clear()
-				t.importBucketMsg()
-			}
-		}
-
-		return err
-	}
+// 批量添加延迟消息到bucket
+func (t *Topic) mpushMsgToBucket(msgIds []int64, msgs [][]byte, delays []int) error {
+	defer func() {
+		msgs = nil
+		msgIds = nil
+		delays = nil
+	}()
 
 	return t.dispatcher.db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte(t.name))
+		if err != nil {
+			return errors.New(fmt.Sprintf("create bucket: %s", err))
+		}
+
+		now := time.Now().Unix()
 		bucket := tx.Bucket([]byte(t.name))
-		for _, v := range msgIds {
-			if v == nil {
-				t.LogInfo("msgId is nil")
-				continue
+
+		for i := 0; i < len(msgIds); i++ {
+			key := creatBucketKey(msgIds[i], now+int64(delays[i]))
+			if err := bucket.Put(key, msgs[i]); err != nil {
+				return err
 			}
-
-			var buf [][]byte
-			msgId := v.(int64)
-
-			delayBuf := make([]byte, 8)
-			binary.BigEndian.PutUint64(delayBuf, uint64(delayTime))
-			buf = append(buf, delayBuf)
-
-			msgIdBuf := make([]byte, 8)
-			binary.BigEndian.PutUint64(msgIdBuf, uint64(msgId))
-			buf = append(buf, msgIdBuf)
-
-			key := bytes.Join(buf, []byte{'-'})
-			msg := bucket.Get(key)
-			// t.LogInfo(fmt.Sprintf("%v-%v-%v find in bucket", delayTime, msgId, key))
-			if len(msg) == 0 {
-				continue
-			}
-
-			fmt.Println("get msg from delayMQ", msg)
-			if err := t.push(msgId, msg, 0); err != nil {
-				// t.LogInfo("msg has been comfired")
-				continue
-			}
-			if err := bucket.Delete(key); err != nil {
-				t.LogError(err)
-				continue
-			}
-
-			buf = nil
-			msgIdBuf = nil
-			delayBuf = nil
 		}
 
 		return nil
@@ -204,7 +176,7 @@ func (t *Topic) handleExpireMsg() error {
 
 // 检索bucket中到期消息写入到队列
 func (t *Topic) retrievalBucketExpireMsg() error {
-	return t.dispatcher.db.View(func(tx *bolt.Tx) error {
+	return t.dispatcher.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(t.name))
 		if bucket.Stats().KeyN == 0 {
 			return nil
@@ -213,15 +185,17 @@ func (t *Topic) retrievalBucketExpireMsg() error {
 		now := time.Now().Unix()
 		c := bucket.Cursor()
 		for key, msg := c.First(); key != nil; key, msg = c.Next() {
-			buf := bytes.Split(key, []byte{'-'})
-			delayTimeBuf, msgIdBuf := buf[0], buf[1]
-			delayTime := binary.BigEndian.Uint64(delayTimeBuf)
-
+			delayTime, msgId := parseBucketKey(key)
 			if now >= int64(delayTime) {
-				t.queue.write(int64(binary.BigEndian.Uint64(msgIdBuf)), msg)
+				if err := t.push(msgId, msg, 0); err != nil {
+					t.LogError(err)
+				}
 				if err := bucket.Delete(key); err != nil {
 					t.LogError(err)
 				}
+				// t.LogWarn(fmt.Sprintf("retreval from bucket with %v", msgId))
+			} else {
+				break
 			}
 		}
 
@@ -229,52 +203,43 @@ func (t *Topic) retrievalBucketExpireMsg() error {
 	})
 }
 
-// 获取bucket存储中第一个消息延迟时间
-func (t *Topic) getBucketFirstMsgTime() uint64 {
-	var delayTime uint64
-
-	t.dispatcher.db.View(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte(t.name))
-		if err != nil {
-			return errors.New(fmt.Sprintf("create bucket: %s", err))
-		}
-
-		bucket := tx.Bucket([]byte(t.name))
-
-		// 本地磁盘没有延迟消息,
-		if bucket.Stats().KeyN == 0 {
-			return nil
-		}
-
-		c := bucket.Cursor()
-		k, _ := c.First()
-
-		buf := bytes.Split(k, []byte{'-'})
-		delayTimeBuf := buf[0]
-		delayTime = binary.BigEndian.Uint64(delayTimeBuf)
-		return nil
-	})
-
-	return delayTime
-}
-
 // 消息消费
-func (t *Topic) pop() (int64, []byte, error) {
-	return t.queue.read()
+func (t *Topic) pop() (msgId int64, msg []byte, err error) {
+	msgId, msg, err = t.queue.read()
+	if err == nil && msgId > 0 {
+		atomic.AddInt64(&t.popNum, 1)
+	}
+	return
 }
 
 // 消息确认
 func (t *Topic) ack(msgId int64) error {
+	delay, ok := t.waitAckMap[msgId] // 有先后顺序,并且msgId是唯一的,所以不需要加锁
+	if !ok {
+		return errors.New(fmt.Sprintf("msgId:%v is not exist", msgId))
+	}
+
 	return t.dispatcher.db.View(func(tx *bolt.Tx) error {
+		key := creatBucketKey(msgId, delay)
 		bucket := tx.Bucket([]byte(t.name))
-		key := make([]byte, 64)
-		binary.BigEndian.PutUint64(key, uint64(msgId))
 		if err := bucket.Delete(key); err != nil {
+			delete(t.waitAckMap, msgId)
 			return err
 		} else {
 			return nil
 		}
 	})
+}
+
+// 获取bucket堆积数量
+func (t *Topic) getBucketNum() int {
+	var num int
+	t.dispatcher.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(t.name))
+		num = bucket.Stats().KeyN
+		return nil
+	})
+	return num
 }
 
 func (t *Topic) LogError(msg interface{}) {

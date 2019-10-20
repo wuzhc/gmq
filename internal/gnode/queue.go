@@ -25,6 +25,7 @@ import (
 )
 
 // const FILE_SIZE = 2 << 32 // 4G
+// const FILE_SIZE = 209715200
 const FILE_SIZE = 209715200
 
 type queue struct {
@@ -67,7 +68,7 @@ func (w *writer) mmap(queueName string) error {
 	}
 
 	// 扩展文件内容
-	if _, err := f.WriteAt([]byte{'0'}, FILE_SIZE); nil != err {
+	if _, err := f.WriteAt([]byte{'0'}, FILE_SIZE-1); nil != err {
 		log.Fatalln(err)
 	} else {
 		f.Close()
@@ -132,35 +133,46 @@ func (r *reader) unmap(queueName string) error {
 }
 
 func (q *queue) read() (int64, []byte, error) {
-	q.RLock()
-	defer q.RUnlock()
-
-	roffset := q.r.offset
+	q.Lock()
+	defer q.Unlock()
 
 	if !q.r.flag {
 		if err := q.r.mmap(q.name); err != nil {
 			if os.IsNotExist(err) {
-				return 0, nil, errors.New("not data")
+				return 0, nil, errors.New("no message")
 			} else {
 				return 0, nil, err
 			}
 		}
 	}
 
-	if _, ok := q.w.wmap[q.r.fid]; !ok {
-		return 0, nil, errors.New("找不到写入的偏移量")
+	roffset := q.r.offset
+	woffset, ok := q.w.wmap[q.r.fid]
+	if !ok {
+		return 0, nil, errors.New("no write offset")
 	}
 
-	woffset := q.w.wmap[q.r.fid]
-	// 读和写在同一位置,说明没有新数据产生
+	fmt.Println("read ---:", "woffset:", woffset, "roffset:", q.r.offset)
 	if roffset == woffset {
-		return 0, nil, errors.New("not data")
+		_, ok := q.w.wmap[q.r.fid+1]
+		// 当woffset等于文件大小,说明woffset已经是文件的末尾
+		// 当已存在下一个写文件,说明woffset已经是文件的末尾
+		if woffset == FILE_SIZE || ok {
+			if err := q.r.unmap(q.name); err != nil {
+				return 0, nil, err
+			} else {
+				delete(q.w.wmap, q.r.fid)
+				return q.read()
+			}
+		} else {
+			return 0, nil, errors.New("no message")
+		}
 	}
 
 	// 读一条消息
-	// 消息结构 flag+msg_len+msg
+	// 消息结构 flag+msgId+msg_len+msg
 	if flag := q.r.data[roffset]; flag != 'v' {
-		return 0, nil, errors.New("非法信息")
+		return 0, nil, errors.New("unkown msg flag")
 	}
 
 	msgId := int64(binary.BigEndian.Uint64(q.r.data[roffset+1 : roffset+9]))
@@ -169,11 +181,17 @@ func (q *queue) read() (int64, []byte, error) {
 	copy(msg, q.r.data[roffset+13:roffset+13+msgLen])
 	q.r.offset += 1 + 8 + 4 + msgLen
 
-	// 如果读到文件的结尾,说明当前文件已被全部消费完毕,
-	// 解除映射并移除数据文件
-	if q.r.offset == woffset && q.r.offset == FILE_SIZE {
-		if err := q.r.unmap(q.name); err != nil {
-			return 0, nil, err
+	// 当读到文件末尾时,说明文件内消息已被全部读取,可解除映射并移除数据文件
+	if q.r.offset == woffset {
+		_, ok := q.w.wmap[q.r.fid+1]
+		// 当woffset等于文件大小,说明woffset已经是文件的末尾
+		// 当已存在下一个写文件,说明woffset已经是文件的末尾
+		if woffset == FILE_SIZE || ok {
+			if err := q.r.unmap(q.name); err != nil {
+				return 0, nil, err
+			} else {
+				delete(q.w.wmap, q.r.fid)
+			}
 		}
 	}
 
@@ -194,7 +212,9 @@ func (q *queue) write(id int64, msg []byte) error {
 	}
 
 	msgLen := len(msg)
-	if woffset+1+4+msgLen > FILE_SIZE {
+	fmt.Println("b -----", woffset+1+8+4+msgLen, q.w.wmap)
+
+	if woffset+1+8+4+msgLen > FILE_SIZE {
 		if err := q.w.unmap(); err != nil {
 			return err
 		}
@@ -211,6 +231,10 @@ func (q *queue) write(id int64, msg []byte) error {
 	copy(q.w.data[woffset+13:woffset+13+msgLen], msg)
 
 	q.w.offset += 1 + 8 + 4 + msgLen
+	fmt.Println("a -----", q.w.offset, q.w.wmap)
 	q.w.wmap[q.w.fid] = q.w.offset
+
+	// fmt.Println("write ---:", "woffset:", woffset, "roffset:", q.r.offset, "wmap:", q.w.wmap)
+
 	return nil
 }

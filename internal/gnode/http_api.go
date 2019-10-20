@@ -3,7 +3,6 @@ package gnode
 import (
 	"encoding/json"
 	"errors"
-	// "time"
 )
 
 type HttpApi struct {
@@ -28,18 +27,23 @@ func (h *HttpApi) Pop(c *HttpServContext) {
 
 	// if topic.isAutoAck is false, add to waiting queue
 	if !t.isAutoAck {
-		if err := t.pushDelayMsg(msgId, msg, 60); err != nil {
+		if err := t.pushMsgToBucket(msgId, msg, 60); err != nil {
 			c.JsonErr(err)
 			return
 		}
 	}
 
-	c.JsonData(msg)
+	data := &Msg{
+		Id:    msgId,
+		Topic: topic,
+		Body:  string(msg),
+	}
+	c.JsonData(data)
 	return
 }
 
-// curl -d 'data={"id":"xxx_1","body":"this is a job","topic":"game_1","TTR":10,"delay":20}' 'http://127.0.0.1:9504/push'
-// 生产任务
+// curl -d 'data={"body":"this is a job","topic":"game_1","delay":20}' 'http://127.0.0.1:9504/push'
+// 推送消息
 func (h *HttpApi) Push(c *HttpServContext) {
 	data := c.Post("data")
 	if len(data) == 0 {
@@ -47,13 +51,13 @@ func (h *HttpApi) Push(c *HttpServContext) {
 		return
 	}
 
-	job := &Job{}
-	if err := json.Unmarshal([]byte(data), job); err != nil {
+	msg := &Msg{}
+	if err := json.Unmarshal([]byte(data), msg); err != nil {
 		c.JsonErr(err)
 		return
 	}
 
-	if _, err := h.ctx.Dispatcher.push(job.Topic, job.Body, job.Delay); err != nil {
+	if _, err := h.ctx.Dispatcher.push(msg.Topic, []byte(msg.Body), msg.Delay); err != nil {
 		c.JsonErr(err)
 		return
 	}
@@ -61,24 +65,45 @@ func (h *HttpApi) Push(c *HttpServContext) {
 	c.JsonSuccess("push success")
 }
 
-// curl http://127.0.0.1:9504/ack?jobId=xxx&topic=xxx
-// func (h *HttpApi) Ack(c *HttpServContext) {
-// 	jobId := c.GetInt64("jobId")
-// 	if jobId == 0 {
-// 		c.JsonErr(errors.New("jobId is empty"))
-// 		return
-// 	}
-// 	topic := c.Get("topic")
-// 	if len(topic) == 0 {
-// 		c.JsonErr(errors.New("topic is empty"))
-// 		return
-// 	}
+// curl http://127.0.0.1:9504/ack?msgI=xxx&topic=xxx
+func (h *HttpApi) Ack(c *HttpServContext) {
+	msgId := c.GetInt64("msgId")
+	if msgId == 0 {
+		c.JsonErr(errors.New("msgId is empty"))
+		return
+	}
+	topic := c.Get("topic")
+	if len(topic) == 0 {
+		c.JsonErr(errors.New("topic is empty"))
+		return
+	}
 
-// 	t := h.ctx.Dispatcher.GetTopic(topic)
-// 	j := t.waitAckMQ.PopByJobId(jobId)
-// 	if j == nil {
-// 		c.JsonErr(errors.New("job is not exist"))
-// 	} else {
-// 		c.JsonSuccess("success")
-// 	}
-// }
+	if err := h.ctx.Dispatcher.ack(topic, msgId); err != nil {
+		c.JsonErr(err)
+	} else {
+		c.JsonSuccess("success")
+	}
+}
+
+func (h *HttpApi) GetTopicStat(c *HttpServContext) {
+	name := c.Get("topic")
+	if len(name) == 0 {
+		c.JsonErr(errors.New("topic is empty"))
+		return
+	}
+
+	topic, err := h.ctx.Dispatcher.GetExistTopic(name)
+	if err != nil {
+		c.JsonErr(err)
+		return
+	}
+
+	data := struct {
+		Name      string `json:"name"`
+		PopNum    int64  `json:"pop_num"`
+		PushNum   int64  `json:"push_num"`
+		BucketNum int    `json:"bucket_num"`
+		StartTime string `json:"start_time"`
+	}{topic.name, topic.popNum, topic.pushNum, topic.getBucketNum(), topic.startTime.Format("2006-01-02 15:04:05")}
+	c.JsonData(data)
+}

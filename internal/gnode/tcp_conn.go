@@ -87,6 +87,8 @@ func (c *TcpConn) Handle() {
 			err = c.POP(params)
 		case bytes.Equal(cmd, []byte("ack")):
 			// err = c.ACK(params)
+		case bytes.Equal(cmd, []byte("mpub")):
+			err = c.MPUB(params)
 		default:
 			c.LogError(fmt.Sprintf("unkown cmd: %s", cmd))
 		}
@@ -150,6 +152,64 @@ func (c *TcpConn) PUB(params [][]byte) error {
 	return nil
 }
 
+// pub <topic_name> <num>
+// <delay-time>[ 4-byte size in bytes ][ N-byte binary data ]
+// <delay-time>[ 4-byte size in bytes ][ N-byte binary data ]
+func (c *TcpConn) MPUB(params [][]byte) error {
+	var err error
+
+	if len(params) != 2 {
+		c.LogError(params)
+		return errors.New("pub params is error")
+	}
+
+	topic := string(params[0])
+	num, _ := strconv.Atoi(string(params[1]))
+	if num <= 0 {
+		return errors.New("num must be greather than 0")
+	}
+
+	delays := make([]int, num, num)
+	msgs := make([][]byte, num, num)
+	defer func() {
+		delays = nil
+		msgs = nil
+	}()
+
+	for i := 0; i < num; i++ {
+		delayBuf := make([]byte, 4)
+		_, err = io.ReadFull(c.reader, delayBuf)
+		if err != nil {
+			return errors.New(fmt.Sprintf("read delay failed, %v", err))
+		}
+
+		bodylenBuf := make([]byte, 4)
+		_, err = io.ReadFull(c.reader, bodylenBuf)
+		if err != nil {
+			return errors.New(fmt.Sprintf("read bodylen failed, %v", err))
+		}
+
+		bodylen := int(binary.BigEndian.Uint32(bodylenBuf))
+		body := make([]byte, bodylen)
+		_, err = io.ReadFull(c.reader, body)
+		if err != nil {
+			return errors.New(fmt.Sprintf("read body failed, %v", err))
+		}
+
+		delays[i] = int(binary.BigEndian.Uint32(delayBuf))
+		msgs[i] = body
+	}
+
+	if _, err := c.serv.ctx.Dispatcher.mpush(topic, msgs, delays); err != nil {
+		c.LogError(err)
+		c.RespErr(err)
+	} else {
+		c.RespMsg("success")
+	}
+
+	return nil
+}
+
 // pop <topic_name>
 func (c *TcpConn) POP(params [][]byte) error {
 	if len(params) != 1 {
@@ -166,7 +226,7 @@ func (c *TcpConn) POP(params [][]byte) error {
 	// if topic.isAutoAck is false, add to waiting queue
 	t := c.serv.ctx.Dispatcher.GetTopic(topic)
 	if !t.isAutoAck {
-		if err := t.pushDelayMsg(msgId, msg, 60); err != nil {
+		if err := t.pushMsgToBucket(msgId, msg, 60); err != nil {
 			c.RespErr(err)
 			return nil
 		}

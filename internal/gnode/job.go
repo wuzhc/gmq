@@ -10,6 +10,13 @@ const (
 	JOB_MAX_TTR   = 30      // default to 30 seconds
 )
 
+type Msg struct {
+	Id    int64  `json:"id"`
+	Topic string `json:"topic"`
+	Body  string `json:"body"`
+	Delay int    `json:"delay"`
+}
+
 type Job struct {
 	Id         int64
 	Topic      string

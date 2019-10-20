@@ -72,9 +72,10 @@ func (d *Dispatcher) exit() {
 }
 
 // 获取指定名称topic
+// 如果不存在topic,将会创建一个topic实例
 func (d *Dispatcher) GetTopic(name string) *Topic {
-	d.RLock()
-	defer d.RUnlock()
+	d.Lock()
+	defer d.Unlock()
 
 	if t, ok := d.topics[name]; ok {
 		return t
@@ -85,6 +86,18 @@ func (d *Dispatcher) GetTopic(name string) *Topic {
 	return t
 }
 
+// 获取当前存在的topic
+func (d *Dispatcher) GetExistTopic(name string) (*Topic, error) {
+	d.Lock()
+	defer d.Unlock()
+
+	if t, ok := d.topics[name]; ok {
+		return t, nil
+	} else {
+		return nil, errors.New("topic is not exist")
+	}
+}
+
 // 获取所有topic
 func (d *Dispatcher) GetTopics() []*Topic {
 	d.RLock()
@@ -93,20 +106,6 @@ func (d *Dispatcher) GetTopics() []*Topic {
 	var topics []*Topic
 	for _, t := range d.topics {
 		topics = append(topics, t)
-	}
-	return topics
-}
-
-// 获取有延迟消息的topic
-func (d *Dispatcher) GetHasDelayMsgTopics() []*Topic {
-	d.RLock()
-	defer d.RUnlock()
-
-	var topics []*Topic
-	for _, t := range d.topics {
-		if t.delayMQ.Size() > 0 {
-			topics = append(topics, t)
-		}
 	}
 	return topics
 }
@@ -177,7 +176,7 @@ func (d *Dispatcher) scanWorker(workCh chan *Topic, closeCh chan int, responseCh
 			d.poolSize--
 			return
 		case topic := <-workCh:
-			err := topic.handleExpireMsg()
+			err := topic.retrievalBucketExpireMsg()
 			if err != nil {
 				d.LogInfo(err)
 				responseCh <- false
@@ -224,6 +223,22 @@ func (d *Dispatcher) push(name string, msg []byte, delay int) (int64, error) {
 	topic := d.GetTopic(name)
 	err := topic.push(msgId, msg, delay)
 	return msgId, err
+}
+
+// 延迟消息批量推送
+func (d *Dispatcher) mpush(name string, msgs [][]byte, delays []int) ([]int64, error) {
+	if len(msgs) == 0 {
+		return nil, errors.New("msg is empty")
+	}
+
+	var msgIds []int64
+	for i := 0; i < len(msgs); i++ {
+		msgIds = append(msgIds, d.snowflake.Generate())
+	}
+
+	topic := d.GetTopic(name)
+	err := topic.mpush(msgIds, msgs, delays)
+	return msgIds, err
 }
 
 // 消息消费
