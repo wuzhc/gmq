@@ -111,7 +111,9 @@ func (d *Dispatcher) GetTopics() []*Topic {
 	return topics
 }
 
-// 定时扫描各个topic队列延迟消息
+// 定时扫描各个topic.queue延迟消息
+// 由dispatcher统一扫描,可以避免每个topic都需要建立定时器的情况
+// 每个topic都建立定时器,会消耗更多的cpu
 func (d *Dispatcher) scanLoop() {
 	selectNum := 20
 

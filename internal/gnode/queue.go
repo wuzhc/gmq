@@ -36,18 +36,18 @@ type queue struct {
 }
 
 type writer struct {
-	fid    int
-	offset int
-	data   []byte
-	wmap   map[int]int
-	flag   bool
+	fid    int         // 文件编号,每次映射都会自增
+	offset int         // 文件内容写入偏移量(即当前写入的位置)
+	data   []byte      // 内存映射文件数据
+	wmap   map[int]int // 文件编号和偏移量关系表
+	flag   bool        // 是否已映射
 }
 
 type reader struct {
-	fid    int
-	offset int
-	data   []byte
-	flag   bool
+	fid    int    // 文件编号,每次映射都会自增
+	offset int    // 文件内容读取偏移量(即当前读取的位置)
+	data   []byte // 内存映射文件数据
+	flag   bool   // 是否已映射
 }
 
 func NewQueue(name string) *queue {
@@ -58,7 +58,8 @@ func NewQueue(name string) *queue {
 	}
 }
 
-func (q *queue) init(readFid, readOffset, writeFid, writeOffset int, wmap map[int]int) error {
+// 上次中断后,记录元数据,当topic.queue重启启动时,根据元数据还原上次执行环境
+func (q *queue) setByMetaData(readFid, readOffset, writeFid, writeOffset int, wmap map[int]int) error {
 	if readFid > 0 {
 		q.r.fid = readFid
 		q.r.offset = readOffset
@@ -151,6 +152,7 @@ func (r *reader) unmap(queueName string) error {
 	return nil
 }
 
+// 队列读取消息
 func (q *queue) read() (int64, []byte, error) {
 	q.Lock()
 	defer q.Unlock()
@@ -173,7 +175,6 @@ func (q *queue) read() (int64, []byte, error) {
 		return 0, nil, errors.New("no write offset")
 	}
 
-	fmt.Println("read ---:", "woffset:", woffset, "roffset:", q.r.offset)
 	if roffset == woffset {
 		_, ok := q.w.wmap[q.r.fid+1]
 		// 当woffset等于文件大小,说明woffset已经是文件的末尾
@@ -235,8 +236,6 @@ func (q *queue) write(id int64, msg []byte) error {
 	}
 
 	msgLen := len(msg)
-	fmt.Println("b -----", woffset+1+8+4+msgLen, q.w.wmap)
-
 	if woffset+1+8+4+msgLen > FILE_SIZE {
 		if err := q.w.unmap(); err != nil {
 			return err
@@ -256,10 +255,7 @@ func (q *queue) write(id int64, msg []byte) error {
 	copy(q.w.data[woffset+13:woffset+13+msgLen], msg)
 
 	q.w.offset += 1 + 8 + 4 + msgLen
-	fmt.Println("a -----", q.w.offset, q.w.wmap)
 	q.w.wmap[q.w.fid] = q.w.offset
-
-	// fmt.Println("write ---:", "woffset:", woffset, "roffset:", q.r.offset, "wmap:", q.w.wmap)
 
 	return nil
 }

@@ -98,7 +98,7 @@ func (t *Topic) init() {
 
 	t.popNum = meta.PopNum
 	t.pushNum = meta.PushNum
-	err = t.queue.init(meta.ReadFid, meta.ReadOffset, meta.WriteFid, meta.WriteOffset, meta.WriteFMap)
+	err = t.queue.setByMetaData(meta.ReadFid, meta.ReadOffset, meta.WriteFid, meta.WriteOffset, meta.WriteFMap)
 	if err != nil {
 		t.LogError(fmt.Sprintf("init %s.queue failed, %v", t.name, err))
 	}
