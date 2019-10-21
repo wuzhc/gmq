@@ -2,8 +2,11 @@ package gnode
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -29,6 +32,16 @@ type Topic struct {
 	sync.Mutex
 }
 
+type TopicMeta struct {
+	PopNum      int64       `json:"pop_num"`
+	PushNum     int64       `json:"push_num"`
+	WriteFid    int         `json:"write_fid"`
+	ReadFid     int         `json:"read_fid"`
+	WriteOffset int         `json:"write_offset"`
+	ReadOffset  int         `json:"read_offset"`
+	WriteFMap   map[int]int `json:"write_file_map"`
+}
+
 func NewTopic(name string, ctx *Context) *Topic {
 	t := &Topic{
 		ctx:        ctx,
@@ -47,6 +60,7 @@ func NewTopic(name string, ctx *Context) *Topic {
 
 // 初始化
 // 初始化bucket
+// 初始化读写偏移量
 func (t *Topic) init() {
 	err := t.dispatcher.db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte(t.name))
@@ -59,12 +73,69 @@ func (t *Topic) init() {
 	if err != nil {
 		panic(err)
 	}
+
+	t.LogInfo("loading topic metadata.")
+
+	fd, err := os.OpenFile(fmt.Sprintf("%s.meta", t.name), os.O_RDONLY, 0600)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			t.LogError(fmt.Sprintf("read %s.meta failed, %v", t.name, err))
+		}
+		return
+	}
+	defer fd.Close()
+
+	data, err := ioutil.ReadAll(fd)
+	if err != nil {
+		t.LogError(fmt.Sprintf("read %s.meta failed, %v", t.name, err))
+		return
+	}
+
+	meta := &TopicMeta{}
+	if err := json.Unmarshal(data, meta); err != nil {
+		t.LogError(fmt.Sprintf("read %s.meta failed, %v", t.name, err))
+		return
+	}
+
+	t.popNum = meta.PopNum
+	t.pushNum = meta.PushNum
+	err = t.queue.init(meta.ReadFid, meta.ReadOffset, meta.WriteFid, meta.WriteOffset, meta.WriteFMap)
+	if err != nil {
+		t.LogError(fmt.Sprintf("init %s.queue failed, %v", t.name, err))
+		return
+	}
 }
 
 // 退出topic
 func (t *Topic) exit() {
 	close(t.exitChan)
 	t.wg.Wait()
+
+	t.LogInfo("writing topic metadata.")
+	fd, err := os.OpenFile(fmt.Sprintf("%s.meta", t.name), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		t.LogError(fmt.Sprintf("write %s.meta failed, %v", t.name, err))
+	}
+	defer fd.Close()
+
+	meta := TopicMeta{
+		PopNum:      t.popNum,
+		PushNum:     t.pushNum,
+		WriteFid:    t.queue.w.fid,
+		ReadFid:     t.queue.r.fid,
+		WriteOffset: t.queue.w.offset,
+		ReadOffset:  t.queue.r.offset,
+		WriteFMap:   t.queue.w.wmap,
+	}
+	data, err := json.Marshal(meta)
+	if err != nil {
+		t.LogError(fmt.Sprintf("write %s.meta failed, %v", t.name, err))
+	}
+
+	_, err = fd.Write(data)
+	if err != nil {
+		t.LogError(fmt.Sprintf("write %s.meta failed, %v", t.name, err))
+	}
 }
 
 // 消息推送

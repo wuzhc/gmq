@@ -51,7 +51,7 @@ func NewDispatcher(ctx *Context) *Dispatcher {
 }
 
 func (d *Dispatcher) Run() {
-	defer d.LogInfo("Dispatcher exit.")
+	defer d.LogInfo("dispatcher exit.")
 
 	d.wg.Wrap(d.scanLoop)
 
@@ -67,8 +67,8 @@ func (d *Dispatcher) exit() {
 		t.exit()
 	}
 
-	d.db.Close()
 	d.wg.Wait()
+	d.db.Close()
 }
 
 // 获取指定名称topic
@@ -178,7 +178,6 @@ func (d *Dispatcher) scanWorker(workCh chan *Topic, closeCh chan int, responseCh
 		case topic := <-workCh:
 			err := topic.retrievalBucketExpireMsg()
 			if err != nil {
-				d.LogInfo(err)
 				responseCh <- false
 			} else {
 				responseCh <- true

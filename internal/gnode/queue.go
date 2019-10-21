@@ -58,9 +58,29 @@ func NewQueue(name string) *queue {
 	}
 }
 
+func (q *queue) init(readFid, readOffset, writeFid, writeOffset int, wmap map[int]int) error {
+	if readFid > 0 {
+		q.r.fid = readFid
+		q.r.offset = readOffset
+		if err := q.r.mmap(q.name); err != nil {
+			return err
+		}
+	}
+
+	if writeFid > 0 {
+		q.w.fid = writeFid
+		q.w.offset = writeOffset
+		if err := q.w.mmap(q.name); err != nil {
+			return err
+		}
+		q.w.wmap = wmap
+	}
+
+	return nil
+}
+
 func (w *writer) mmap(queueName string) error {
-	w.fid += 1
-	fname := fmt.Sprintf("%s_%d.log", queueName, w.fid)
+	fname := fmt.Sprintf("%s_%d.queue", queueName, w.fid)
 
 	f, err := os.OpenFile(fname, os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
@@ -101,8 +121,7 @@ func (w *writer) unmap() error {
 }
 
 func (r *reader) mmap(queueName string) error {
-	r.fid += 1
-	fname := fmt.Sprintf("%s_%d.log", queueName, r.fid)
+	fname := fmt.Sprintf("%s_%d.queue", queueName, r.fid)
 
 	f, err := os.OpenFile(fname, os.O_RDONLY, 0600)
 	if err != nil {
@@ -120,7 +139,7 @@ func (r *reader) mmap(queueName string) error {
 
 // 偏移位置重置为0
 func (r *reader) unmap(queueName string) error {
-	fname := fmt.Sprintf("%s_%d.log", queueName, r.fid)
+	fname := fmt.Sprintf("%s_%d.queue", queueName, r.fid)
 	if err := syscall.Munmap(r.data); nil != err {
 		return err
 	}
@@ -137,7 +156,9 @@ func (q *queue) read() (int64, []byte, error) {
 	defer q.Unlock()
 
 	if !q.r.flag {
+		q.r.fid++
 		if err := q.r.mmap(q.name); err != nil {
+			q.r.fid--
 			if os.IsNotExist(err) {
 				return 0, nil, errors.New("no message")
 			} else {
@@ -206,7 +227,9 @@ func (q *queue) write(id int64, msg []byte) error {
 	woffset := q.w.offset
 
 	if !q.w.flag {
+		q.w.fid++
 		if err := q.w.mmap(q.name); err != nil {
+			q.w.fid--
 			return err
 		}
 	}
@@ -218,7 +241,9 @@ func (q *queue) write(id int64, msg []byte) error {
 		if err := q.w.unmap(); err != nil {
 			return err
 		}
+		q.w.fid++
 		if err := q.w.mmap(q.name); err != nil {
+			q.w.fid--
 			return err
 		}
 		woffset = q.w.offset
