@@ -36,6 +36,7 @@ func New() *Gnode {
 	}
 }
 
+// 启动应用
 func (gn *Gnode) Run() {
 	defer gn.wg.Wait()
 
@@ -68,6 +69,7 @@ func (gn *Gnode) Run() {
 	ctx.Logger.Info("Gnode is running.")
 }
 
+// 退出应用
 func (gn *Gnode) Exit() {
 	if err := gn.unregister(); err != nil {
 		log.Fatalln("failed")
@@ -76,6 +78,7 @@ func (gn *Gnode) Exit() {
 	close(gn.exitChan)
 }
 
+// 设置配置选项
 func (gn *Gnode) SetConfig(cfgFile string) {
 	if res, err := utils.PathExists(cfgFile); !res {
 		if err != nil {
@@ -141,6 +144,7 @@ func (gn *Gnode) SetConfig(cfgFile string) {
 	gn.cfg.SetDefault()
 }
 
+// 设置默认配置选项
 func (gn *Gnode) SetDefaultConfig() {
 	cfg := new(configs.GnodeConfig)
 
@@ -153,6 +157,7 @@ func (gn *Gnode) SetDefaultConfig() {
 	gn.cfg.SetDefault()
 }
 
+// 安装退出信号处理器
 func (gn *Gnode) installSignalHandler() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
@@ -163,6 +168,7 @@ func (gn *Gnode) installSignalHandler() {
 	}()
 }
 
+// 初始化日志组件
 func (gn *Gnode) initLogger() *logs.Dispatcher {
 	logger := logs.NewDispatcher()
 	targets := strings.Split(gn.cfg.LogTargetType, ",")

@@ -59,9 +59,8 @@ func NewTopic(name string, ctx *Context) *Topic {
 }
 
 // 初始化
-// 初始化bucket
-// 初始化读写偏移量
 func (t *Topic) init() {
+	// 初始化bucket
 	err := t.dispatcher.db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte(t.name))
 		if err != nil {
@@ -76,10 +75,11 @@ func (t *Topic) init() {
 
 	t.LogInfo("loading topic metadata.")
 
+	// 初始化队列读写偏移量
 	fd, err := os.OpenFile(fmt.Sprintf("%s.meta", t.name), os.O_RDONLY, 0600)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			t.LogError(fmt.Sprintf("read %s.meta failed, %v", t.name, err))
+			t.LogError(fmt.Sprintf("load %s.meta failed, %v", t.name, err))
 		}
 		return
 	}
@@ -87,13 +87,12 @@ func (t *Topic) init() {
 
 	data, err := ioutil.ReadAll(fd)
 	if err != nil {
-		t.LogError(fmt.Sprintf("read %s.meta failed, %v", t.name, err))
+		t.LogError(fmt.Sprintf("load %s.meta failed, %v", t.name, err))
 		return
 	}
-
 	meta := &TopicMeta{}
 	if err := json.Unmarshal(data, meta); err != nil {
-		t.LogError(fmt.Sprintf("read %s.meta failed, %v", t.name, err))
+		t.LogError(fmt.Sprintf("load %s.meta failed, %v", t.name, err))
 		return
 	}
 
@@ -102,16 +101,17 @@ func (t *Topic) init() {
 	err = t.queue.init(meta.ReadFid, meta.ReadOffset, meta.WriteFid, meta.WriteOffset, meta.WriteFMap)
 	if err != nil {
 		t.LogError(fmt.Sprintf("init %s.queue failed, %v", t.name, err))
-		return
 	}
 }
 
 // 退出topic
 func (t *Topic) exit() {
+	defer t.LogInfo(fmt.Sprintf("topic.%s has exit.", t.name))
+
 	close(t.exitChan)
 	t.wg.Wait()
 
-	t.LogInfo("writing topic metadata.")
+	t.LogInfo(fmt.Sprintf("writing topic.%s metadata.", t.name))
 	fd, err := os.OpenFile(fmt.Sprintf("%s.meta", t.name), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		t.LogError(fmt.Sprintf("write %s.meta failed, %v", t.name, err))

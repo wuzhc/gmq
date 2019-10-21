@@ -8,6 +8,7 @@ import (
 )
 
 func main() {
-	gr := gregister.New("./conf.ini")
+	gr := gregister.New()
+	gr.SetConfig("./conf.ini")
 	gr.Run()
 }

@@ -61,6 +61,7 @@ func (d *Dispatcher) Run() {
 	}
 }
 
+// 退出dispatcher
 func (d *Dispatcher) exit() {
 	close(d.exitChan)
 	for _, t := range d.topics {

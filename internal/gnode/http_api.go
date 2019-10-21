@@ -3,6 +3,7 @@ package gnode
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
 )
 
 type HttpApi struct {
@@ -85,6 +86,8 @@ func (h *HttpApi) Ack(c *HttpServContext) {
 	}
 }
 
+// 获取指定topic统计信息
+// curl http://127.0.0.1/getTopicStat?topic=xxx
 func (h *HttpApi) GetTopicStat(c *HttpServContext) {
 	name := c.Get("topic")
 	if len(name) == 0 {
@@ -106,4 +109,10 @@ func (h *HttpApi) GetTopicStat(c *HttpServContext) {
 		StartTime string `json:"start_time"`
 	}{topic.name, topic.popNum, topic.pushNum, topic.getBucketNum(), topic.startTime.Format("2006-01-02 15:04:05")}
 	c.JsonData(data)
+}
+
+// 心跳接口
+func (h *HttpApi) Ping(c *HttpServContext) {
+	c.w.WriteHeader(http.StatusOK)
+	c.w.Write([]byte{'O', 'K'})
 }

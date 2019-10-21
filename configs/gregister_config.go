@@ -1,6 +1,8 @@
 package configs
 
 type GregisterConfig struct {
+	Heartbeat int
+
 	// http server
 	HttpServAddr      string
 	HttpServEnableTls bool
@@ -20,6 +22,10 @@ func (c *GregisterConfig) Validate() {
 }
 
 func (c *GregisterConfig) SetDefault() {
+	if c.Heartbeat == 0 {
+		c.Heartbeat = 2
+	}
+
 	// log default config
 	if len(c.LogFilename) == 0 {
 		c.LogFilename = "gregister.log"
