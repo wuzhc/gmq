@@ -153,7 +153,7 @@ func (r *reader) unmap(queueName string) error {
 }
 
 // 队列读取消息
-func (q *queue) read() (int64, []byte, error) {
+func (q *queue) read() (uint64, []byte, error) {
 	q.Lock()
 	defer q.Unlock()
 
@@ -197,7 +197,7 @@ func (q *queue) read() (int64, []byte, error) {
 		return 0, nil, errors.New("unkown msg flag")
 	}
 
-	msgId := int64(binary.BigEndian.Uint64(q.r.data[roffset+1 : roffset+9]))
+	msgId := binary.BigEndian.Uint64(q.r.data[roffset+1 : roffset+9])
 	msgLen := int(binary.BigEndian.Uint32(q.r.data[roffset+9 : roffset+13]))
 	msg := make([]byte, msgLen)
 	copy(msg, q.r.data[roffset+13:roffset+13+msgLen])
@@ -221,7 +221,7 @@ func (q *queue) read() (int64, []byte, error) {
 }
 
 // 新写入信息的长度不能超过文件大小,超过则新建文件
-func (q *queue) write(id int64, msg []byte) error {
+func (q *queue) write(id uint64, msg []byte) error {
 	q.Lock()
 	defer q.Unlock()
 
@@ -250,7 +250,7 @@ func (q *queue) write(id int64, msg []byte) error {
 
 	// msg = flag + msg.id + msg.len + msg.content
 	copy(q.w.data[woffset:woffset+1], []byte{'v'})
-	binary.BigEndian.PutUint64(q.w.data[woffset+1:woffset+9], uint64(id))
+	binary.BigEndian.PutUint64(q.w.data[woffset+1:woffset+9], id)
 	binary.BigEndian.PutUint32(q.w.data[woffset+9:woffset+13], uint32(msgLen))
 	copy(q.w.data[woffset+13:woffset+13+msgLen], msg)
 

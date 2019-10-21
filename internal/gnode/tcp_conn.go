@@ -146,7 +146,7 @@ func (c *TcpConn) PUB(params [][]byte) error {
 		c.LogError(err)
 		c.RespErr(err)
 	} else {
-		c.RespMsg(strconv.FormatInt(msgId, 10))
+		c.RespMsg(strconv.FormatInt(int64(msgId), 10))
 	}
 
 	return nil
@@ -245,7 +245,7 @@ func (c *TcpConn) ACK(params [][]byte) error {
 	msgId, _ := strconv.ParseInt(string(params[0]), 10, 64)
 	topic := string(params[1])
 
-	if err := c.serv.ctx.Dispatcher.ack(topic, msgId); err != nil {
+	if err := c.serv.ctx.Dispatcher.ack(topic, uint64(msgId)); err != nil {
 		c.RespErr(err)
 		return nil
 	}
@@ -293,7 +293,7 @@ func (c *TcpConn) RespJob(job *Job) bool {
 	return true
 }
 
-func (c *TcpConn) RespJob22(msgId int64, msg []byte) bool {
+func (c *TcpConn) RespJob22(msgId uint64, msg []byte) bool {
 	var data [][]byte
 	data = append(data, msg)
 	data = append(data, []byte(strconv.Itoa(int(msgId))))

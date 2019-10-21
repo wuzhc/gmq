@@ -11,7 +11,7 @@ const (
 )
 
 type Msg struct {
-	Id    int64  `json:"id"`
+	Id    uint64 `json:"id"`
 	Topic string `json:"topic"`
 	Body  string `json:"body"`
 	Delay int    `json:"delay"`

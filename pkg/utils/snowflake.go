@@ -58,8 +58,10 @@ func NewSnowflake(workerid int64) (*Snowflake, error) {
 }
 
 // Generate creates and returns a unique snowflake ID
-func (s *Snowflake) Generate() int64 {
+func (s *Snowflake) Generate() uint64 {
 	s.Lock()
+	defer s.Unlock()
+
 	now := time.Now().UnixNano() / 1000000
 
 	if s.timestamp == now {
@@ -74,7 +76,5 @@ func (s *Snowflake) Generate() int64 {
 	}
 
 	s.timestamp = now
-	r := int64((now-twepoch)<<timestampShift | (s.workerid << workeridShift) | (s.sequence))
-	s.Unlock()
-	return r
+	return uint64((now-twepoch)<<timestampShift | (s.workerid << workeridShift) | (s.sequence))
 }

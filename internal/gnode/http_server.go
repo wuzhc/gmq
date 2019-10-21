@@ -26,7 +26,7 @@ func NewHttpServ(ctx *Context) *HttpServ {
 }
 
 func (s *HttpServ) Run() {
-	defer s.LogInfo("Http server exit.")
+	defer s.LogInfo("http server exit.")
 
 	api := &HttpApi{
 		ctx: s.ctx,
@@ -54,10 +54,10 @@ func (s *HttpServ) Run() {
 	if s.ctx.Conf.HttpServEnableTls {
 		certFile := s.ctx.Conf.HttpServCertFile
 		keyFile := s.ctx.Conf.HttpServKeyFile
-		s.LogInfo(fmt.Sprintf("Http server(%s) is running with tls", addr))
+		s.LogInfo(fmt.Sprintf("http server(%s) is running with tls", addr))
 		err = serv.ListenAndServeTLS(certFile, keyFile)
 	} else {
-		s.LogInfo(fmt.Sprintf("Http server(%s) is running", addr))
+		s.LogInfo(fmt.Sprintf("http server(%s) is running", addr))
 		err = serv.ListenAndServe()
 	}
 

@@ -162,8 +162,6 @@ func (gr *Gregister) heartbeat() {
 		case <-gr.exitChan:
 			return
 		case <-ticker.C:
-			fmt.Println("ticker...")
-			fmt.Println(gr.nodes)
 			if len(gr.nodes) == 0 {
 				continue
 			}

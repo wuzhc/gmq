@@ -18,10 +18,11 @@ var (
 
 type Dispatcher struct {
 	ctx       *Context
-	poolSize  int
 	db        *bolt.DB
 	wg        utils.WaitGroupWrapper
+	closed    bool
 	topics    map[string]*Topic
+	poolSize  int
 	snowflake *utils.Snowflake
 	exitChan  chan struct{}
 	sync.RWMutex
@@ -63,6 +64,7 @@ func (d *Dispatcher) Run() {
 
 // 退出dispatcher
 func (d *Dispatcher) exit() {
+	d.closed = true
 	close(d.exitChan)
 	for _, t := range d.topics {
 		t.exit()
@@ -116,7 +118,6 @@ func (d *Dispatcher) GetTopics() []*Topic {
 // 每个topic都建立定时器,会消耗更多的cpu
 func (d *Dispatcher) scanLoop() {
 	selectNum := 20
-
 	workCh := make(chan *Topic, selectNum)          // 用于分发topic给worker处理
 	responseCh := make(chan bool, selectNum)        // 用于worker处理完任务后响应
 	closeCh := make(chan int)                       // 用于通知worker退出
@@ -144,6 +145,10 @@ func (d *Dispatcher) scanLoop() {
 			selectNum = len(topics)
 		}
 	loop:
+		if d.closed {
+			goto exit
+		}
+
 		// 从topic集合中随机挑选selectNum个topic给worker处理
 		for _, i := range utils.UniqRands(selectNum, len(topics)) {
 			workCh <- topics[i]
@@ -220,7 +225,7 @@ func (d *Dispatcher) resizePool(topicNum int, workCh chan *Topic, closeCh chan i
 
 // 消息推送
 // 每一条消息都需要dispatcher统一分配msg.Id
-func (d *Dispatcher) push(name string, msg []byte, delay int) (int64, error) {
+func (d *Dispatcher) push(name string, msg []byte, delay int) (uint64, error) {
 	msgId := d.snowflake.Generate()
 	topic := d.GetTopic(name)
 	err := topic.push(msgId, msg, delay)
@@ -228,12 +233,12 @@ func (d *Dispatcher) push(name string, msg []byte, delay int) (int64, error) {
 }
 
 // 延迟消息批量推送
-func (d *Dispatcher) mpush(name string, msgs [][]byte, delays []int) ([]int64, error) {
+func (d *Dispatcher) mpush(name string, msgs [][]byte, delays []int) ([]uint64, error) {
 	if len(msgs) == 0 {
 		return nil, errors.New("msg is empty")
 	}
 
-	var msgIds []int64
+	var msgIds []uint64
 	for i := 0; i < len(msgs); i++ {
 		msgIds = append(msgIds, d.snowflake.Generate())
 	}
@@ -244,13 +249,13 @@ func (d *Dispatcher) mpush(name string, msgs [][]byte, delays []int) ([]int64, e
 }
 
 // 消息消费
-func (d *Dispatcher) pop(name string) (int64, []byte, error) {
+func (d *Dispatcher) pop(name string) (uint64, []byte, error) {
 	topic := d.GetTopic(name)
 	return topic.pop()
 }
 
 // 消费确认
-func (d *Dispatcher) ack(name string, msgId int64) error {
+func (d *Dispatcher) ack(name string, msgId uint64) error {
 	topic := d.GetTopic(name)
 	return topic.ack(msgId)
 }

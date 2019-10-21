@@ -79,7 +79,7 @@ func (h *HttpApi) Ack(c *HttpServContext) {
 		return
 	}
 
-	if err := h.ctx.Dispatcher.ack(topic, msgId); err != nil {
+	if err := h.ctx.Dispatcher.ack(topic, uint64(msgId)); err != nil {
 		c.JsonErr(err)
 	} else {
 		c.JsonSuccess("success")

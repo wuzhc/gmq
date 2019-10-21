@@ -28,11 +28,11 @@ func NewTcpServ(ctx *Context) *TcpServ {
 func (s *TcpServ) Run() {
 	defer func() {
 		s.wg.Wait()
-		s.LogInfo("Tcp server exit.")
+		s.LogInfo("tcp server exit.")
 	}()
 
 	addr := s.ctx.Conf.TcpServAddr
-	s.LogInfo(fmt.Sprintf("Tcp server(%s) is running.", addr))
+	s.LogInfo(fmt.Sprintf("tcp server(%s) is running.", addr))
 
 	listen, err := net.Listen("tcp", addr)
 	if err != nil {

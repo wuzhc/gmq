@@ -23,11 +23,12 @@ type Topic struct {
 	startTime  time.Time
 	ctx        *Context
 	queue      *queue
+	closed     bool
 	wg         utils.WaitGroupWrapper
 	isAutoAck  bool
 	dispatcher *Dispatcher
 	exitChan   chan struct{}
-	waitAckMap map[int64]int64
+	waitAckMap map[uint64]int64
 	waitAckMux sync.Mutex
 	sync.Mutex
 }
@@ -49,7 +50,7 @@ func NewTopic(name string, ctx *Context) *Topic {
 		isAutoAck:  true,
 		exitChan:   make(chan struct{}),
 		queue:      NewQueue(name),
-		waitAckMap: make(map[int64]int64),
+		waitAckMap: make(map[uint64]int64),
 		dispatcher: ctx.Dispatcher,
 		startTime:  time.Now(),
 	}
@@ -73,7 +74,7 @@ func (t *Topic) init() {
 		panic(err)
 	}
 
-	t.LogInfo("loading topic metadata.")
+	t.LogInfo(fmt.Sprintf("loading topic.%s metadata.", t.name))
 
 	// 初始化队列读写偏移量
 	fd, err := os.OpenFile(fmt.Sprintf("%s.meta", t.name), os.O_RDONLY, 0600)
@@ -108,6 +109,7 @@ func (t *Topic) init() {
 func (t *Topic) exit() {
 	defer t.LogInfo(fmt.Sprintf("topic.%s has exit.", t.name))
 
+	t.closed = true
 	close(t.exitChan)
 	t.wg.Wait()
 
@@ -139,12 +141,9 @@ func (t *Topic) exit() {
 }
 
 // 消息推送
-func (t *Topic) push(msgId int64, msg []byte, delay int) error {
+func (t *Topic) push(msgId uint64, msg []byte, delay int) error {
 	if delay > 0 {
-		start := time.Now()
-		err := t.pushMsgToBucket(msgId, msg, delay)
-		t.LogWarn(time.Now().Sub(start))
-		return err
+		return t.pushMsgToBucket(msgId, msg, delay)
 	}
 
 	t.queue.write(msgId, msg)
@@ -153,7 +152,7 @@ func (t *Topic) push(msgId int64, msg []byte, delay int) error {
 }
 
 // 消息批量推送
-func (t *Topic) mpush(msgIds []int64, msgs [][]byte, delays []int) error {
+func (t *Topic) mpush(msgIds []uint64, msgs [][]byte, delays []int) error {
 	defer func() {
 		msgs = nil
 		msgIds = nil
@@ -171,31 +170,29 @@ func (t *Topic) mpush(msgIds []int64, msgs [][]byte, delays []int) error {
 	}
 
 	if len(msgIds) > 0 {
-		start := time.Now()
 		return t.mpushMsgToBucket(msgIds, msgs, delays)
-		t.LogWarn(time.Now().Sub(start))
 	}
 
 	return nil
 }
 
 // bucket.key : delay - msgId
-func creatBucketKey(msgId int64, delay int64) []byte {
+func creatBucketKey(msgId uint64, delay int64) []byte {
 	var buf = make([]byte, 16)
 	binary.BigEndian.PutUint64(buf[:8], uint64(delay))
-	binary.BigEndian.PutUint64(buf[8:], uint64(msgId))
+	binary.BigEndian.PutUint64(buf[8:], msgId)
 	return buf
 }
 
 // 解析bucket.key
-func parseBucketKey(key []byte) (int64, int64) {
-	return int64(binary.BigEndian.Uint64(key[:8])), int64(binary.BigEndian.Uint64(key[8:]))
+func parseBucketKey(key []byte) (uint64, uint64) {
+	return binary.BigEndian.Uint64(key[:8]), binary.BigEndian.Uint64(key[8:])
 }
 
 // 延迟消息保存到bucket
 // topic.delayMQ: {key:delayTime,value:msg.Id}
 // db.topic: {key:delayTime-msg.Id,value:msg}
-func (t *Topic) pushMsgToBucket(msgId int64, msg []byte, delay int) error {
+func (t *Topic) pushMsgToBucket(msgId uint64, msg []byte, delay int) error {
 	return t.dispatcher.db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte(t.name))
 		if err != nil {
@@ -218,7 +215,7 @@ func (t *Topic) pushMsgToBucket(msgId int64, msg []byte, delay int) error {
 }
 
 // 批量添加延迟消息到bucket
-func (t *Topic) mpushMsgToBucket(msgIds []int64, msgs [][]byte, delays []int) error {
+func (t *Topic) mpushMsgToBucket(msgIds []uint64, msgs [][]byte, delays []int) error {
 	defer func() {
 		msgs = nil
 		msgIds = nil
@@ -247,6 +244,12 @@ func (t *Topic) mpushMsgToBucket(msgIds []int64, msgs [][]byte, delays []int) er
 
 // 检索bucket中到期消息写入到队列
 func (t *Topic) retrievalBucketExpireMsg() error {
+	if t.closed {
+		err := errors.New(fmt.Sprintf("topic.%s has exit."))
+		t.LogWarn(err)
+		return err
+	}
+
 	return t.dispatcher.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(t.name))
 		if bucket.Stats().KeyN == 0 {
@@ -264,7 +267,6 @@ func (t *Topic) retrievalBucketExpireMsg() error {
 				if err := bucket.Delete(key); err != nil {
 					t.LogError(err)
 				}
-				// t.LogWarn(fmt.Sprintf("retreval from bucket with %v", msgId))
 			} else {
 				break
 			}
@@ -275,7 +277,7 @@ func (t *Topic) retrievalBucketExpireMsg() error {
 }
 
 // 消息消费
-func (t *Topic) pop() (msgId int64, msg []byte, err error) {
+func (t *Topic) pop() (msgId uint64, msg []byte, err error) {
 	msgId, msg, err = t.queue.read()
 	if err == nil && msgId > 0 {
 		atomic.AddInt64(&t.popNum, 1)
@@ -284,7 +286,7 @@ func (t *Topic) pop() (msgId int64, msg []byte, err error) {
 }
 
 // 消息确认
-func (t *Topic) ack(msgId int64) error {
+func (t *Topic) ack(msgId uint64) error {
 	delay, ok := t.waitAckMap[msgId] // 有先后顺序,并且msgId是唯一的,所以不需要加锁
 	if !ok {
 		return errors.New(fmt.Sprintf("msgId:%v is not exist", msgId))
