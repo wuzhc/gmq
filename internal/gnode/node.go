@@ -66,7 +66,7 @@ func (gn *Gnode) Run() {
 	}
 
 	gn.installSignalHandler()
-	ctx.Logger.Info("Gnode is running.")
+	ctx.Logger.Info("gnode is running.")
 }
 
 // 退出应用
@@ -96,8 +96,8 @@ func (gn *Gnode) SetConfig(cfgFile string) {
 	cfg := new(configs.GnodeConfig)
 
 	// node
-	cfg.NodeId, _ = c.Section("node").Key("id").Int64()
-	cfg.BGSave = c.Section("node").Key("bgsave").String()
+	nodeId, _ := c.Section("node").Key("id").Int64()
+	nodeWeight, _ := c.Section("node").Key("weight").Int64()
 
 	// log config
 	cfg.LogFilename = c.Section("log").Key("filename").String()
@@ -128,7 +128,6 @@ func (gn *Gnode) SetConfig(cfgFile string) {
 	cfg.TcpServCertFile = c.Section("tcp_server").Key("certFile").String()
 	cfg.TcpServKeyFile = c.Section("tcp_server").Key("keyFile").String()
 	cfg.TcpServEnableTls, _ = c.Section("tcp_server").Key("enableTls").Bool()
-	cfg.TcpServWeight, _ = c.Section("tcp_server").Key("weight").Int()
 
 	// register config
 	registerAddr := c.Section("gregister").Key("addr").String()
@@ -137,7 +136,8 @@ func (gn *Gnode) SetConfig(cfgFile string) {
 	flag.StringVar(&cfg.TcpServAddr, "tcp_addr", tcpServAddr, "tcp address")
 	flag.StringVar(&cfg.HttpServAddr, "http_addr", httpServAddr, "http address")
 	flag.StringVar(&cfg.GregisterAddr, "register_addr", registerAddr, "register address")
-	flag.Int64Var(&cfg.NodeId, "node_id", 1, "node unique id")
+	flag.Int64Var(&cfg.NodeId, "node_id", nodeId, "node unique id")
+	flag.Int64Var(&cfg.NodeWeight, "node_weight", nodeWeight, "node weight")
 	flag.Parse()
 
 	gn.cfg = cfg
@@ -151,6 +151,8 @@ func (gn *Gnode) SetDefaultConfig() {
 	flag.StringVar(&cfg.TcpServAddr, "tcp_addr", "", "tcp address")
 	flag.StringVar(&cfg.GregisterAddr, "register_addr", "", "register address")
 	flag.StringVar(&cfg.HttpServAddr, "http_addr", "", "http address")
+	flag.Int64Var(&cfg.NodeId, "node_id", 1, "node unique id")
+	flag.Int64Var(&cfg.NodeWeight, "node_weight", 1, "node weight")
 	flag.Parse()
 
 	gn.cfg = cfg
@@ -194,7 +196,7 @@ type rs struct {
 func (gn *Gnode) register() error {
 	hosts := strings.Split(gn.cfg.GregisterAddr, ",")
 	for _, host := range hosts {
-		url := fmt.Sprintf("%s/register?tcp_addr=%s&http_addr=%s&weight=%d&node_id=%d", host, gn.cfg.TcpServAddr, gn.cfg.HttpServAddr, gn.cfg.TcpServWeight, gn.cfg.NodeId)
+		url := fmt.Sprintf("%s/register?tcp_addr=%s&http_addr=%s&weight=%d&node_id=%d", host, gn.cfg.TcpServAddr, gn.cfg.HttpServAddr, gn.cfg.NodeWeight, gn.cfg.NodeId)
 		resp, err := http.Get(url)
 		if err != nil {
 			return err

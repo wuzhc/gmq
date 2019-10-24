@@ -153,7 +153,7 @@ func (r *reader) unmap(queueName string) error {
 }
 
 // 队列读取消息
-func (q *queue) read() (uint64, []byte, error) {
+func (q *queue) read() ([]byte, error) {
 	q.Lock()
 	defer q.Unlock()
 
@@ -162,9 +162,9 @@ func (q *queue) read() (uint64, []byte, error) {
 		if err := q.r.mmap(q.name); err != nil {
 			q.r.fid--
 			if os.IsNotExist(err) {
-				return 0, nil, errors.New("no message")
+				return nil, errors.New("no message")
 			} else {
-				return 0, nil, err
+				return nil, err
 			}
 		}
 	}
@@ -172,7 +172,7 @@ func (q *queue) read() (uint64, []byte, error) {
 	roffset := q.r.offset
 	woffset, ok := q.w.wmap[q.r.fid]
 	if !ok {
-		return 0, nil, errors.New("no write offset")
+		return nil, errors.New("no write offset")
 	}
 
 	if roffset == woffset {
@@ -181,27 +181,26 @@ func (q *queue) read() (uint64, []byte, error) {
 		// 当已存在下一个写文件,说明woffset已经是文件的末尾
 		if woffset == FILE_SIZE || ok {
 			if err := q.r.unmap(q.name); err != nil {
-				return 0, nil, err
+				return nil, err
 			} else {
 				delete(q.w.wmap, q.r.fid)
 				return q.read()
 			}
 		} else {
-			return 0, nil, errors.New("no message")
+			return nil, errors.New("no message")
 		}
 	}
 
 	// 读一条消息
 	// 消息结构 flag+msgId+msg_len+msg
 	if flag := q.r.data[roffset]; flag != 'v' {
-		return 0, nil, errors.New("unkown msg flag")
+		return nil, errors.New("unkown msg flag")
 	}
 
-	msgId := binary.BigEndian.Uint64(q.r.data[roffset+1 : roffset+9])
-	msgLen := int(binary.BigEndian.Uint32(q.r.data[roffset+9 : roffset+13]))
+	msgLen := int(binary.BigEndian.Uint32(q.r.data[roffset+1 : roffset+5]))
 	msg := make([]byte, msgLen)
-	copy(msg, q.r.data[roffset+13:roffset+13+msgLen])
-	q.r.offset += 1 + 8 + 4 + msgLen
+	copy(msg, q.r.data[roffset+5:roffset+5+msgLen])
+	q.r.offset += 1 + 4 + msgLen
 
 	// 当读到文件末尾时,说明文件内消息已被全部读取,可解除映射并移除数据文件
 	if q.r.offset == woffset {
@@ -210,18 +209,18 @@ func (q *queue) read() (uint64, []byte, error) {
 		// 当已存在下一个写文件,说明woffset已经是文件的末尾
 		if woffset == FILE_SIZE || ok {
 			if err := q.r.unmap(q.name); err != nil {
-				return 0, nil, err
+				return nil, err
 			} else {
 				delete(q.w.wmap, q.r.fid)
 			}
 		}
 	}
 
-	return msgId, msg, nil
+	return msg, nil
 }
 
 // 新写入信息的长度不能超过文件大小,超过则新建文件
-func (q *queue) write(id uint64, msg []byte) error {
+func (q *queue) write(msg []byte) error {
 	q.Lock()
 	defer q.Unlock()
 
@@ -236,7 +235,7 @@ func (q *queue) write(id uint64, msg []byte) error {
 	}
 
 	msgLen := len(msg)
-	if woffset+1+8+4+msgLen > FILE_SIZE {
+	if woffset+1+4+msgLen > FILE_SIZE {
 		if err := q.w.unmap(); err != nil {
 			return err
 		}
@@ -248,13 +247,12 @@ func (q *queue) write(id uint64, msg []byte) error {
 		woffset = q.w.offset
 	}
 
-	// msg = flag + msg.id + msg.len + msg.content
+	// package = flag + msgLen + msg
 	copy(q.w.data[woffset:woffset+1], []byte{'v'})
-	binary.BigEndian.PutUint64(q.w.data[woffset+1:woffset+9], id)
-	binary.BigEndian.PutUint32(q.w.data[woffset+9:woffset+13], uint32(msgLen))
-	copy(q.w.data[woffset+13:woffset+13+msgLen], msg)
+	binary.BigEndian.PutUint32(q.w.data[woffset+1:woffset+5], uint32(msgLen))
+	copy(q.w.data[woffset+5:woffset+5+msgLen], msg)
 
-	q.w.offset += 1 + 8 + 4 + msgLen
+	q.w.offset += 1 + 4 + msgLen
 	q.w.wmap[q.w.fid] = q.w.offset
 
 	return nil

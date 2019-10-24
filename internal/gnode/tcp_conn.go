@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,9 +18,9 @@ import (
 )
 
 const (
-	RESP_JOB = iota
-	RESP_ERR
-	RESP_MSG
+	RESP_MESSAGE = 101
+	RESP_ERROR   = 102
+	RESP_RESULT  = 103
 )
 
 type TcpConn struct {
@@ -86,9 +87,13 @@ func (c *TcpConn) Handle() {
 		case bytes.Equal(cmd, []byte("pop")):
 			err = c.POP(params)
 		case bytes.Equal(cmd, []byte("ack")):
-			// err = c.ACK(params)
+			err = c.ACK(params)
 		case bytes.Equal(cmd, []byte("mpub")):
 			err = c.MPUB(params)
+		case bytes.Equal(cmd, []byte("dead")):
+			err = c.DEAD(params)
+		case bytes.Equal(cmd, []byte("set")):
+			err = c.SET(params)
 		default:
 			c.LogError(fmt.Sprintf("unkown cmd: %s", cmd))
 		}
@@ -105,25 +110,20 @@ func (c *TcpConn) Handle() {
 	close(c.exitChan)
 }
 
-// pub <topic_name> <delay-time> <ttr-time>
+// pub <topic_name> <delay-time>
 // [ 4-byte size in bytes ][ N-byte binary data ]
 func (c *TcpConn) PUB(params [][]byte) error {
 	var err error
 
-	if len(params) != 3 {
+	if len(params) != 2 {
 		c.LogError(params)
 		return errors.New("pub params is error")
 	}
 
 	topic := string(params[0])
 	delay, _ := strconv.Atoi(string(params[1]))
-	if delay > JOB_MAX_DELAY {
+	if delay > MSG_MAX_DELAY {
 		return errors.New("pub.delay exceeding the maximum")
-	}
-
-	ttr, _ := strconv.Atoi(string(params[2]))
-	if ttr > JOB_MAX_TTR {
-		return errors.New("pub.ttr exceeding the maximum")
 	}
 
 	bodylenBuf := make([]byte, 4)
@@ -146,7 +146,7 @@ func (c *TcpConn) PUB(params [][]byte) error {
 		c.LogError(err)
 		c.RespErr(err)
 	} else {
-		c.RespMsg(strconv.FormatInt(int64(msgId), 10))
+		c.RespRes(strconv.FormatInt(int64(msgId), 10))
 	}
 
 	return nil
@@ -204,7 +204,7 @@ func (c *TcpConn) MPUB(params [][]byte) error {
 		c.LogError(err)
 		c.RespErr(err)
 	} else {
-		c.RespMsg("success")
+		c.RespRes("ok")
 	}
 
 	return nil
@@ -217,7 +217,11 @@ func (c *TcpConn) POP(params [][]byte) error {
 	}
 
 	topic := string(params[0])
-	msgId, msg, err := c.serv.ctx.Dispatcher.pop(topic)
+	msg, err := c.serv.ctx.Dispatcher.pop(topic)
+	defer func() {
+		msg = nil
+	}()
+
 	if err != nil {
 		c.RespErr(err)
 		return nil
@@ -226,17 +230,32 @@ func (c *TcpConn) POP(params [][]byte) error {
 	// if topic.isAutoAck is false, add to waiting queue
 	t := c.serv.ctx.Dispatcher.GetTopic(topic)
 	if !t.isAutoAck {
-		if err := t.pushMsgToBucket(msgId, msg, 60); err != nil {
-			c.RespErr(err)
-			return nil
+		msg.Retry += 1
+		msg.Delay = uint32(msg.Retry) * MSG_DELAY_INTERVAL
+		msg.Expire = int64(msg.Delay) + time.Now().Unix()
+		if msg.Retry > MSG_MAX_RETRY {
+			t.LogWarn("noauto ack to failure bucket")
+			if err := t.pushMsgToDeadBucket(msg); err != nil {
+				c.RespErr(err)
+				return nil
+			}
+		} else {
+			if err := t.pushMsgToBucket(msg); err != nil {
+				c.RespErr(err)
+				return nil
+			}
+
+			t.waitAckMux.Lock()
+			t.waitAckMap[msg.Id] = msg.Expire
+			t.waitAckMux.Unlock()
 		}
 	}
 
-	c.RespJob22(msgId, msg)
+	c.RespMsg(msg)
 	return nil
 }
 
-// ack <job_id>
+// ack <message_id>
 func (c *TcpConn) ACK(params [][]byte) error {
 	if len(params) != 2 {
 		return errors.New("ack params is error")
@@ -250,6 +269,50 @@ func (c *TcpConn) ACK(params [][]byte) error {
 		return nil
 	}
 
+	c.RespRes("ok")
+	return nil
+}
+
+// 消费死信
+// dead <topic_name> <message_number>
+func (c *TcpConn) DEAD(params [][]byte) error {
+	if len(params) != 2 {
+		return errors.New("dead params is error")
+	}
+
+	topic := string(params[0])
+	num := params[1]
+	n, _ := strconv.Atoi(string(num))
+	msgs, err := c.serv.ctx.Dispatcher.dead(topic, n)
+	if err != nil {
+		c.RespErr(err)
+		return nil
+	}
+	if len(msgs) == 0 {
+		c.RespErr(errors.New("no message"))
+		return nil
+	}
+
+	c.RespMsgs(msgs)
+	return nil
+}
+
+// 设置topic信息,目前只有isAutoAck选项
+// set <topic> <isAutoAck>
+func (c *TcpConn) SET(params [][]byte) error {
+	if len(params) != 2 {
+		return errors.New("ack params is error")
+	}
+
+	topic := string(params[0])
+	isAutoAck, _ := strconv.Atoi(string(params[1]))
+
+	if err := c.serv.ctx.Dispatcher.set(topic, isAutoAck); err != nil {
+		c.RespErr(err)
+		return nil
+	}
+
+	c.RespRes("ok")
 	return nil
 }
 
@@ -284,30 +347,50 @@ func (c *TcpConn) Response(respType int16, respData []byte) {
 	c.writer.Flush()
 }
 
-func (c *TcpConn) RespJob(job *Job) bool {
-	var data [][]byte
-	data = append(data, job.Body)
-	data = append(data, []byte(strconv.Itoa(job.ConsumeNum)))
-	c.Response(RESP_JOB, bytes.Join(data, []byte{' '}))
-	job = nil
+func (c *TcpConn) RespMsg(msg *Msg) bool {
+	msgData := RespMsgData{}
+	msgData.Body = string(msg.Body)
+	msgData.Retry = msg.Retry
+	msgData.Id = msg.Id
+
+	data, err := json.Marshal(msgData)
+	if err != nil {
+		c.LogError(err)
+		return false
+	}
+
+	c.Response(RESP_MESSAGE, data)
 	return true
 }
 
-func (c *TcpConn) RespJob22(msgId uint64, msg []byte) bool {
-	var data [][]byte
-	data = append(data, msg)
-	data = append(data, []byte(strconv.Itoa(int(msgId))))
-	c.Response(RESP_JOB, bytes.Join(data, []byte{' '}))
+func (c *TcpConn) RespMsgs(msgs []*Msg) bool {
+	var v []RespMsgData
+	for _, msg := range msgs {
+		msgData := RespMsgData{}
+		msgData.Body = string(msg.Body)
+		msgData.Retry = msg.Retry
+		msgData.Id = msg.Id
+		v = append(v, msgData)
+		msg = nil
+	}
+
+	data, err := json.Marshal(v)
+	if err != nil {
+		c.LogError(err)
+		return false
+	}
+
+	c.Response(RESP_MESSAGE, data)
 	return true
 }
 
 func (c *TcpConn) RespErr(err error) bool {
-	c.Response(RESP_ERR, []byte(err.Error()))
+	c.Response(RESP_ERROR, []byte(err.Error()))
 	return false
 }
 
-func (c *TcpConn) RespMsg(msg string) bool {
-	c.Response(RESP_MSG, []byte(msg))
+func (c *TcpConn) RespRes(msg string) bool {
+	c.Response(RESP_RESULT, []byte(msg))
 	return true
 }
 

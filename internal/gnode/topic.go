@@ -16,6 +16,10 @@ import (
 	"github.com/wuzhc/gmq/pkg/utils"
 )
 
+const (
+	DEAD_FLAG = "_failure"
+)
+
 type Topic struct {
 	name       string
 	pushNum    int64
@@ -41,13 +45,14 @@ type TopicMeta struct {
 	WriteOffset int         `json:"write_offset"`
 	ReadOffset  int         `json:"read_offset"`
 	WriteFMap   map[int]int `json:"write_file_map"`
+	IsAutoAck   bool        `json:"is_auto_ack"`
 }
 
 func NewTopic(name string, ctx *Context) *Topic {
 	t := &Topic{
 		ctx:        ctx,
 		name:       name,
-		isAutoAck:  true,
+		isAutoAck:  false,
 		exitChan:   make(chan struct{}),
 		queue:      NewQueue(name),
 		waitAckMap: make(map[uint64]int64),
@@ -63,12 +68,13 @@ func NewTopic(name string, ctx *Context) *Topic {
 func (t *Topic) init() {
 	// 初始化bucket
 	err := t.dispatcher.db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte(t.name))
-		if err != nil {
+		if _, err := tx.CreateBucketIfNotExists([]byte(t.name)); err != nil {
 			return errors.New(fmt.Sprintf("create bucket: %s", err))
-		} else {
-			return nil
 		}
+		if _, err := tx.CreateBucketIfNotExists([]byte(t.name + DEAD_FLAG)); err != nil {
+			return errors.New(fmt.Sprintf("create bucket: %s", err))
+		}
+		return nil
 	})
 	if err != nil {
 		panic(err)
@@ -99,6 +105,7 @@ func (t *Topic) init() {
 
 	t.popNum = meta.PopNum
 	t.pushNum = meta.PushNum
+	t.isAutoAck = meta.IsAutoAck
 	err = t.queue.setByMetaData(meta.ReadFid, meta.ReadOffset, meta.WriteFid, meta.WriteOffset, meta.WriteFMap)
 	if err != nil {
 		t.LogError(fmt.Sprintf("init %s.queue failed, %v", t.name, err))
@@ -128,6 +135,7 @@ func (t *Topic) exit() {
 		WriteOffset: t.queue.w.offset,
 		ReadOffset:  t.queue.r.offset,
 		WriteFMap:   t.queue.w.wmap,
+		IsAutoAck:   t.isAutoAck,
 	}
 	data, err := json.Marshal(meta)
 	if err != nil {
@@ -141,37 +149,59 @@ func (t *Topic) exit() {
 }
 
 // 消息推送
-func (t *Topic) push(msgId uint64, msg []byte, delay int) error {
-	if delay > 0 {
-		return t.pushMsgToBucket(msgId, msg, delay)
+func (t *Topic) push(msg *Msg) error {
+	defer func() {
+		msg = nil
+	}()
+
+	if msg.Delay > 0 {
+		msg.Expire = int64(msg.Delay) + time.Now().Unix()
+		return t.pushMsgToBucket(msg)
+	}
+	if err := t.queue.write(Encode(msg)); err != nil {
+		return err
 	}
 
-	t.queue.write(msgId, msg)
 	atomic.AddInt64(&t.pushNum, 1)
 	return nil
 }
 
 // 消息批量推送
 func (t *Topic) mpush(msgIds []uint64, msgs [][]byte, delays []int) error {
-	defer func() {
-		msgs = nil
-		msgIds = nil
-		delays = nil
-	}()
+	var (
+		dmsgIDs []uint64
+		dmsgs   [][]byte
+		ddelays []int
+	)
 
-	for i := 0; i < len(msgIds); i++ {
+	total := len(msgIds)
+	for i := 0; i < total; i++ {
 		if delays[i] == 0 {
+			msg := &Msg{
+				Id:   msgIds[i],
+				Body: msgs[i],
+			}
 			atomic.AddInt64(&t.pushNum, 1)
-			t.queue.write(msgIds[i], msgs[i])
-			msgs = append(msgs[:i], msgs[i+1:]...)
-			msgIds = append(msgIds[:i], msgIds[i+1:]...)
-			delays = append(delays[:i], delays[i+1:]...)
+			t.queue.write(Encode(msg))
+			msg = nil
+		} else {
+			dmsgIDs = append(dmsgIDs, msgIds[i])
+			dmsgs = append(dmsgs, msgs[i])
+			ddelays = append(ddelays, delays[i])
 		}
 	}
 
-	if len(msgIds) > 0 {
-		return t.mpushMsgToBucket(msgIds, msgs, delays)
+	msgs = nil
+	msgIds = nil
+	delays = nil
+
+	if len(dmsgIDs) > 0 {
+		return t.mpushMsgToBucket(dmsgIDs, dmsgs, ddelays)
 	}
+
+	dmsgIDs = nil
+	dmsgs = nil
+	ddelays = nil
 
 	return nil
 }
@@ -190,25 +220,44 @@ func parseBucketKey(key []byte) (uint64, uint64) {
 }
 
 // 延迟消息保存到bucket
-// topic.delayMQ: {key:delayTime,value:msg.Id}
-// db.topic: {key:delayTime-msg.Id,value:msg}
-func (t *Topic) pushMsgToBucket(msgId uint64, msg []byte, delay int) error {
-	return t.dispatcher.db.Update(func(tx *bolt.Tx) error {
+// db.topic: {key:expire+msg.Id,value:msg}
+func (t *Topic) pushMsgToBucket(msg *Msg) error {
+	err := t.dispatcher.db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte(t.name))
 		if err != nil {
 			return errors.New(fmt.Sprintf("create bucket: %s", err))
 		}
 
 		bucket := tx.Bucket([]byte(t.name))
-		key := creatBucketKey(msgId, int64(delay)+time.Now().Unix())
+		key := creatBucketKey(msg.Id, msg.Expire)
 		// t.LogInfo(fmt.Sprintf("%v-%v-%v write in bucket", delayTime, msgId, key))
-		if err := bucket.Put(key, msg); err != nil {
+		if err := bucket.Put(key, Encode(msg)); err != nil {
 			return err
 		}
 
-		t.waitAckMux.Lock()
-		t.waitAckMap[msgId] = int64(delay) + time.Now().Unix()
-		t.waitAckMux.Unlock()
+		return nil
+	})
+
+	msg = nil
+	return err
+}
+
+// 死信队列
+// 规定:如果一条消息6次被消费后都未收到客户端确认,则会被添加到死信队列
+func (t *Topic) pushMsgToDeadBucket(msg *Msg) error {
+	return t.dispatcher.db.Update(func(tx *bolt.Tx) error {
+		name := t.name + DEAD_FLAG
+		_, err := tx.CreateBucketIfNotExists([]byte(name))
+		if err != nil {
+			return errors.New(fmt.Sprintf("create bucket: %s", err))
+		}
+
+		bucket := tx.Bucket([]byte(name))
+		key := creatBucketKey(msg.Id, time.Now().Unix())
+		// t.LogInfo(fmt.Sprintf("%v-%v-%v write in bucket", delayTime, msgId, key))
+		if err := bucket.Put(key, Encode(msg)); err != nil {
+			return err
+		}
 
 		return nil
 	})
@@ -245,12 +294,14 @@ func (t *Topic) mpushMsgToBucket(msgIds []uint64, msgs [][]byte, delays []int) e
 // 检索bucket中到期消息写入到队列
 func (t *Topic) retrievalBucketExpireMsg() error {
 	if t.closed {
-		err := errors.New(fmt.Sprintf("topic.%s has exit."))
+		err := errors.New(fmt.Sprintf("topic.%s has exit.", t.name))
 		t.LogWarn(err)
 		return err
 	}
 
-	return t.dispatcher.db.Update(func(tx *bolt.Tx) error {
+	var num int
+	var err error
+	err = t.dispatcher.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(t.name))
 		if bucket.Stats().KeyN == 0 {
 			return nil
@@ -258,50 +309,128 @@ func (t *Topic) retrievalBucketExpireMsg() error {
 
 		now := time.Now().Unix()
 		c := bucket.Cursor()
+		for key, data := c.First(); key != nil; key, data = c.Next() {
+			delayTime, _ := parseBucketKey(key)
+			msg := Decode(data)
+			if msg.Id == 0 {
+				t.LogError(errors.New("decode message failed."))
+				continue
+			}
+
+			// 因为消息是有序的,当一个消息的到期时间比当前时间大,说明之后信息都还未到期
+			// 此时可以退出检索了
+			if now < int64(delayTime) {
+				break
+			}
+
+			if err := t.queue.write(data); err != nil {
+				t.LogError(err)
+				continue
+			}
+			if err := bucket.Delete(key); err != nil {
+				t.LogError(err)
+				continue
+			}
+
+			// waitAckMap存储待确认的消息索引信息
+			delete(t.waitAckMap, msg.Id)
+			atomic.AddInt64(&t.pushNum, 1)
+			num++
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+	if num == 0 {
+		return ErrMessageNotExist
+	}
+
+	return nil
+}
+
+// 消息消费
+func (t *Topic) pop() (*Msg, error) {
+	data, err := t.queue.read()
+	if err != nil {
+		return nil, err
+	}
+
+	msg := Decode(data)
+	if msg.Id > 0 {
+		atomic.AddInt64(&t.popNum, 1)
+		return msg, nil
+	} else {
+		msg = nil
+	}
+
+	return nil, errors.New("message decode failed.")
+}
+
+// 私信队列
+func (t *Topic) dead(num int) (msgs []*Msg, err error) {
+	err = t.dispatcher.db.Update(func(tx *bolt.Tx) error {
+		name := t.name + DEAD_FLAG
+		_, err := tx.CreateBucketIfNotExists([]byte(name))
+		if err != nil {
+			return errors.New(fmt.Sprintf("create bucket: %s", err))
+		}
+
+		bucket := tx.Bucket([]byte(name))
+		if bucket.Stats().KeyN == 0 {
+			return nil
+		}
+
+		c := bucket.Cursor()
 		for key, msg := c.First(); key != nil; key, msg = c.Next() {
-			delayTime, msgId := parseBucketKey(key)
-			if now >= int64(delayTime) {
-				if err := t.push(msgId, msg, 0); err != nil {
-					t.LogError(err)
-				}
-				if err := bucket.Delete(key); err != nil {
-					t.LogError(err)
-				}
-			} else {
+			if err := bucket.Delete(key); err != nil {
+				return err
+			}
+			msgs = append(msgs, Decode(msg))
+			if len(msgs) >= num {
 				break
 			}
 		}
 
 		return nil
 	})
-}
 
-// 消息消费
-func (t *Topic) pop() (msgId uint64, msg []byte, err error) {
-	msgId, msg, err = t.queue.read()
-	if err == nil && msgId > 0 {
-		atomic.AddInt64(&t.popNum, 1)
-	}
 	return
 }
 
 // 消息确认
 func (t *Topic) ack(msgId uint64) error {
-	delay, ok := t.waitAckMap[msgId] // 有先后顺序,并且msgId是唯一的,所以不需要加锁
+	delay, ok := t.waitAckMap[msgId]
 	if !ok {
 		return errors.New(fmt.Sprintf("msgId:%v is not exist", msgId))
 	}
 
-	return t.dispatcher.db.View(func(tx *bolt.Tx) error {
+	return t.dispatcher.db.Update(func(tx *bolt.Tx) error {
 		key := creatBucketKey(msgId, delay)
 		bucket := tx.Bucket([]byte(t.name))
 		if err := bucket.Delete(key); err != nil {
-			delete(t.waitAckMap, msgId)
 			return err
 		} else {
+			delete(t.waitAckMap, msgId)
 			return nil
 		}
 	})
+}
+
+// 设置topic信息
+func (t *Topic) set(isAutoAck int) error {
+	t.Lock()
+	defer t.Unlock()
+
+	if isAutoAck == 1 {
+		t.isAutoAck = true
+	} else {
+		t.isAutoAck = false
+	}
+
+	return nil
 }
 
 // 获取bucket堆积数量
@@ -309,6 +438,17 @@ func (t *Topic) getBucketNum() int {
 	var num int
 	t.dispatcher.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(t.name))
+		num = bucket.Stats().KeyN
+		return nil
+	})
+	return num
+}
+
+// 获取死信数量
+func (t *Topic) getDeadNum() int {
+	var num int
+	t.dispatcher.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte(t.name + DEAD_FLAG))
 		num = bucket.Stats().KeyN
 		return nil
 	})

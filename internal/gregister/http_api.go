@@ -80,6 +80,8 @@ func (h *HttpApi) Unregister(c *HttpServContext) {
 	return
 }
 
+// 获取节点列表
+// curl http://127.0.0.1:9595/getNodes
 func (h *HttpApi) GetNodes(c *HttpServContext) {
 	c.JsonData(map[string][]node{
 		"nodes": h.ctx.Gregister.nodes,

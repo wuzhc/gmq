@@ -1,8 +1,9 @@
 package configs
 
 type GnodeConfig struct {
-	NodeId int64
-	BGSave string
+	// node
+	NodeId     int64
+	NodeWeight int64
 
 	// redis
 	RedisMaxIdle     int    `gmq:"redis_max_idle" def:"3"`
@@ -27,8 +28,6 @@ type GnodeConfig struct {
 
 	// tcp server
 	TcpServAddr      string
-	TcpServCoder     string // 编码器,序列化和反序列化,目前支持json,gob,默认为json
-	TcpServWeight    int
 	TcpServEnableTls bool
 	TcpServCertFile  string
 	TcpServKeyFile   string
@@ -50,8 +49,11 @@ func (c *GnodeConfig) Validate() {
 }
 
 func (c *GnodeConfig) SetDefault() {
-	if len(c.BGSave) == 0 {
-		c.BGSave = "30-100,150-10,300-1"
+	if c.NodeId == 0 {
+		c.NodeId = 1
+	}
+	if c.NodeWeight == 0 {
+		c.NodeWeight = 1
 	}
 
 	// bucket default config
@@ -99,12 +101,6 @@ func (c *GnodeConfig) SetDefault() {
 	}
 	if len(c.TcpServAddr) == 0 {
 		c.TcpServAddr = "127.0.0.1:9503"
-	}
-	if len(c.TcpServCoder) == 0 {
-		c.TcpServCoder = "json"
-	}
-	if c.TcpServWeight <= 0 {
-		c.TcpServWeight = 1
 	}
 
 	// gresiger default config

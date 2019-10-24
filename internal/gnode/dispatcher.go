@@ -2,6 +2,7 @@ package gnode
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -117,17 +118,21 @@ func (d *Dispatcher) GetTopics() []*Topic {
 // 由dispatcher统一扫描,可以避免每个topic都需要建立定时器的情况
 // 每个topic都建立定时器,会消耗更多的cpu
 func (d *Dispatcher) scanLoop() {
-	selectNum := 20
-	workCh := make(chan *Topic, selectNum)          // 用于分发topic给worker处理
-	responseCh := make(chan bool, selectNum)        // 用于worker处理完任务后响应
-	closeCh := make(chan int)                       // 用于通知worker退出
-	scanTicker := time.NewTicker(1 * time.Second)   // 定时扫描时间
-	freshTicker := time.NewTicker(10 * time.Second) // 刷新topic集合
+	selectNum := 20                                // 每次检索20个topic的延迟消息
+	workCh := make(chan *Topic, selectNum)         // 用于分发topic给worker处理
+	responseCh := make(chan bool, selectNum)       // 用于worker处理完任务后响应
+	closeCh := make(chan int)                      // 用于通知worker退出
+	scanTicker := time.NewTicker(1 * time.Second)  // 定时扫描时间
+	freshTicker := time.NewTicker(3 * time.Second) // 刷新topic集合
 
 	topics := d.GetTopics()
 	d.resizePool(len(topics), workCh, closeCh, responseCh)
 
 	for {
+		// 每次检索20个topic的延迟消息
+		// 此值不超过topic的总数
+		selectNum = 20
+
 		select {
 		case <-d.exitChan:
 			goto exit
@@ -150,6 +155,7 @@ func (d *Dispatcher) scanLoop() {
 		}
 
 		// 从topic集合中随机挑选selectNum个topic给worker处理
+		// worker数量不够多的时候,这里会阻塞
 		for _, i := range utils.UniqRands(selectNum, len(topics)) {
 			workCh <- topics[i]
 		}
@@ -163,7 +169,10 @@ func (d *Dispatcher) scanLoop() {
 		}
 
 		// 如果已处理个数超过选择topic个数的四分之一,说明这批topic还是有很大几率有消息的
-		// 继续从这批topic中随机挑选topic执行就可以了,否则进入下个扫描,重新随机挑选topic处理或刷新topic的值
+		// 继续重新随机挑选topic处理,否则进入下一个定时器
+		// todo: 这个算法的规则是优先执行选中topic消息,直到没有消息后,才会去进行下轮遍历,
+		// 所以若被选中的topic一直有消息产生,则会导致其他新加入topic的消息无法被即时处理
+		// 如果你的业务是很频繁推送多个topic,并且是延迟消息,可以尽量调大selectNum的值
 		if float64(hasMsgNum)/float64(selectNum) > 0.25 {
 			goto loop
 		}
@@ -204,7 +213,7 @@ func (d *Dispatcher) resizePool(topicNum int, workCh chan *Topic, closeCh chan i
 
 	// topic数量增加,导致需要创建更多的woker数量,启动新的worker并增加池大小
 	if workerNum > d.poolSize {
-		d.LogInfo("add scan-Worker for pool", workerNum, d.poolSize)
+		d.LogInfo(fmt.Sprintf("start %v of workers to scan delay message", workerNum))
 		d.wg.Wrap(func() {
 			d.scanWorker(workCh, closeCh, responseCh)
 		})
@@ -225,10 +234,18 @@ func (d *Dispatcher) resizePool(topicNum int, workCh chan *Topic, closeCh chan i
 
 // 消息推送
 // 每一条消息都需要dispatcher统一分配msg.Id
-func (d *Dispatcher) push(name string, msg []byte, delay int) (uint64, error) {
+func (d *Dispatcher) push(name string, data []byte, delay int) (uint64, error) {
 	msgId := d.snowflake.Generate()
+
+	msg := &Msg{}
+	msg.Id = msgId
+	msg.Delay = uint32(delay)
+	msg.Body = data
+
 	topic := d.GetTopic(name)
-	err := topic.push(msgId, msg, delay)
+	err := topic.push(msg)
+	msg = nil
+
 	return msgId, err
 }
 
@@ -249,15 +266,31 @@ func (d *Dispatcher) mpush(name string, msgs [][]byte, delays []int) ([]uint64, 
 }
 
 // 消息消费
-func (d *Dispatcher) pop(name string) (uint64, []byte, error) {
+func (d *Dispatcher) pop(name string) (*Msg, error) {
 	topic := d.GetTopic(name)
 	return topic.pop()
+}
+
+// 死信队列
+func (d *Dispatcher) dead(name string, num int) ([]*Msg, error) {
+	if num == 0 {
+		return nil, errors.New("num is empty")
+	}
+
+	topic := d.GetTopic(name)
+	return topic.dead(num)
 }
 
 // 消费确认
 func (d *Dispatcher) ack(name string, msgId uint64) error {
 	topic := d.GetTopic(name)
 	return topic.ack(msgId)
+}
+
+// 设置topic配置
+func (d *Dispatcher) set(name string, isAutoAck int) error {
+	topic := d.GetTopic(name)
+	return topic.set(isAutoAck)
 }
 
 func (d *Dispatcher) LogError(msg ...interface{}) {

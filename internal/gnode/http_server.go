@@ -37,7 +37,9 @@ func (s *HttpServ) Run() {
 	mux.handle("/push", api.Push)
 	mux.handle("/ack", api.Ack)
 	mux.handle("/ping", api.Ping)
+	mux.handle("/exitTopic", api.ExitTopic)
 	mux.handle("/getTopicStat", api.GetTopicStat)
+	mux.handle("/getAllTopicStat", api.GetAllTopicStat)
 
 	addr := s.ctx.Conf.HttpServAddr
 	serv := &http.Server{

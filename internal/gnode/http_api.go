@@ -3,11 +3,22 @@ package gnode
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"time"
 )
 
 type HttpApi struct {
 	ctx *Context
+}
+
+type topicData struct {
+	Name      string `json:"name"`
+	PopNum    int64  `json:"pop_num"`
+	PushNum   int64  `json:"push_num"`
+	BucketNum int    `json:"bucket_num"`
+	DeadNum   int    `json:"dead_num"`
+	StartTime string `json:"start_time"`
 }
 
 // curl http://127.0.0.1:9504/pop?topic=xxx
@@ -20,7 +31,10 @@ func (h *HttpApi) Pop(c *HttpServContext) {
 	}
 
 	t := h.ctx.Dispatcher.GetTopic(topic)
-	msgId, msg, err := t.pop()
+	msg, err := t.pop()
+	defer func() {
+		msg = nil
+	}()
 	if err != nil {
 		c.JsonErr(err)
 		return
@@ -28,16 +42,30 @@ func (h *HttpApi) Pop(c *HttpServContext) {
 
 	// if topic.isAutoAck is false, add to waiting queue
 	if !t.isAutoAck {
-		if err := t.pushMsgToBucket(msgId, msg, 60); err != nil {
-			c.JsonErr(err)
-			return
+		msg.Retry += 1
+		msg.Delay = uint32(msg.Retry) * MSG_DELAY_INTERVAL
+		msg.Expire = int64(msg.Delay) + time.Now().Unix()
+		if msg.Retry > MSG_MAX_RETRY {
+			if err := t.pushMsgToDeadBucket(msg); err != nil {
+				c.JsonErr(err)
+				return
+			}
+		} else {
+			if err := t.pushMsgToBucket(msg); err != nil {
+				c.JsonErr(err)
+				return
+			}
+
+			t.waitAckMux.Lock()
+			t.waitAckMap[msg.Id] = msg.Expire
+			t.waitAckMux.Unlock()
 		}
 	}
 
-	data := &Msg{
-		Id:    msgId,
-		Topic: topic,
-		Body:  string(msg),
+	data := RespMsgData{
+		Id:    msg.Id,
+		Body:  string(msg.Body),
+		Retry: msg.Retry,
 	}
 	c.JsonData(data)
 	return
@@ -52,7 +80,7 @@ func (h *HttpApi) Push(c *HttpServContext) {
 		return
 	}
 
-	msg := &Msg{}
+	msg := RecvMsgData{}
 	if err := json.Unmarshal([]byte(data), msg); err != nil {
 		c.JsonErr(err)
 		return
@@ -95,20 +123,64 @@ func (h *HttpApi) GetTopicStat(c *HttpServContext) {
 		return
 	}
 
+	t, err := h.ctx.Dispatcher.GetExistTopic(name)
+	if err != nil {
+		c.JsonErr(err)
+		return
+	}
+
+	data := topicData{}
+	data.Name = t.name
+	data.PopNum = t.popNum
+	data.PushNum = t.pushNum
+	data.BucketNum = t.getBucketNum()
+	data.DeadNum = t.getDeadNum()
+	data.StartTime = t.startTime.Format("2006-01-02 15:04:05")
+	c.JsonData(data)
+}
+
+// 获取所有topic统计信息
+// curl http://127.0.0.1/getAllTopicStat
+// http://127.0.0.1:9504/getAllTopicStat
+func (h *HttpApi) GetAllTopicStat(c *HttpServContext) {
+	topics := h.ctx.Dispatcher.GetTopics()
+
+	var topicDatas = make([]topicData, len(topics))
+	for i, t := range topics {
+		data := topicData{}
+		data.Name = t.name
+		data.PopNum = t.popNum
+		data.PushNum = t.pushNum
+		data.BucketNum = t.getBucketNum()
+		data.DeadNum = t.getDeadNum()
+		data.StartTime = t.startTime.Format("2006-01-02 15:04:05")
+		topicDatas[i] = data
+	}
+
+	c.JsonData(topicDatas)
+}
+
+// 退出topic
+// curl http://127.0.0.1/exitTopic?topic=xxx
+// http://127.0.0.1:9504/exitTopic?topic=xxx
+func (h *HttpApi) ExitTopic(c *HttpServContext) {
+	name := c.Get("topic")
+	if len(name) == 0 {
+		c.JsonErr(errors.New("topic is empty"))
+		return
+	}
+
+	// topic不存在或没有被客户端请求
 	topic, err := h.ctx.Dispatcher.GetExistTopic(name)
 	if err != nil {
 		c.JsonErr(err)
 		return
 	}
 
-	data := struct {
-		Name      string `json:"name"`
-		PopNum    int64  `json:"pop_num"`
-		PushNum   int64  `json:"push_num"`
-		BucketNum int    `json:"bucket_num"`
-		StartTime string `json:"start_time"`
-	}{topic.name, topic.popNum, topic.pushNum, topic.getBucketNum(), topic.startTime.Format("2006-01-02 15:04:05")}
-	c.JsonData(data)
+	topic.exit()
+	topic = nil
+	delete(h.ctx.Dispatcher.topics, name)
+	c.JsonSuccess(fmt.Sprintf("topic.%s has exit.", name))
 }
 
 // 心跳接口
