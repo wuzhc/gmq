@@ -43,27 +43,9 @@
 ### 4.1 源码运行
 配置文件位于`gmq/conf.ini`,可以根据自己项目需求修改配置
 ```bash
-git clone https://github.com/wuzhc/gmq.git
-cd gmq
-go get -u -v github.com/kardianos/govendor # 如果有就不需要安装了
-govendor sync
-# go build # 可编译成可执行文件
-```
-### 3.2 执行文件运行
-```bash
-# 启动
-./gmq start
-# 或者 
-# go run main.go start
-# 停止
-./gmq stop
-# 或者
-# go run main.go stop
-
-# 守护进程模式启动,不输出日志到console
-nohup ./gmq start >/dev/null 2>&1  &
-# 守护进程模式下查看日志输出(配置文件conf.ini需要设置target_type=file,filename=gmq.log)
-tail -f gmq.log
+go get -v -u github.com/wuzhc/gmq
+cd $GOPATH/src/github.com/wuzhc/gmq
+go run main.go
 ```
 
 ## 5. 客户端
