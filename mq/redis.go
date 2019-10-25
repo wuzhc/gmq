@@ -25,21 +25,9 @@ func init() {
 
 func (db *RedisDB) InitPool() {
 	host := gmq.cfg.Section("redis").Key("host").String()
-	if len(host) == 0 {
-		host = "127.0.0.1"
-	}
 	port := gmq.cfg.Section("redis").Key("port").String()
-	if len(port) == 0 {
-		port = "6379"
-	}
 	maxIdle, _ := gmq.cfg.Section("redis").Key("max_idle").Int()
-	if maxIdle <= 0 {
-		maxIdle = 2
-	}
 	maxActive, _ := gmq.cfg.Section("redis").Key("max_active").Int()
-	if maxActive <= 0 {
-		maxActive = 3000
-	}
 
 	db.Pool = &redis.Pool{
 		MaxIdle:     maxIdle,
@@ -60,6 +48,11 @@ func (db *RedisDB) InitPool() {
 			_, err := c.Do("PING")
 			return err
 		},
+	}
+
+	// 检查redis是否连接有误
+	if _, err := db.Pool.Dial(); err != nil {
+		panic(err)
 	}
 }
 
