@@ -47,15 +47,18 @@ git clone https://github.com/wuzhc/gmq.git
 cd gmq
 go get -u -v github.com/kardianos/govendor # 如果有就不需要安装了
 govendor sync
-go run main.go
 # go build # 可编译成可执行文件
 ```
 ### 3.2 执行文件运行
 ```bash
 # 启动
 ./gmq start
+# 或者 
+# go run main.go start
 # 停止
 ./gmq stop
+# 或者
+# go run main.go stop
 
 # 守护进程模式启动,不输出日志到console
 nohup ./gmq start >/dev/null 2>&1  &
