@@ -2,16 +2,15 @@ package main
 
 import (
 	"fmt"
-	"gmq/mq"
 	"io/ioutil"
 	"os"
-	"runtime"
 	"strconv"
 	"syscall"
+
+	"github.com/wuzhc/gmq/mq"
 )
 
 func main() {
-	runtime.GOMAXPROCS(8)
 	args := os.Args
 	if len(args) == 1 {
 		fmt.Println("Usage gmq start")

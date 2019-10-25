@@ -9,11 +9,12 @@ package logs
 import (
 	"encoding/json"
 	"fmt"
-	"gmq/utils"
 	"os"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/wuzhc/gmq/utils"
 )
 
 type fileTarget struct {

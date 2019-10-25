@@ -3,13 +3,13 @@ package mq
 import (
 	"context"
 	"fmt"
-	"gmq/utils"
 	"net/http"
 	"sort"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/wuzhc/gmq/utils"
 )
 
 type WebMonitor struct {

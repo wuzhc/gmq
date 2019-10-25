@@ -3,15 +3,14 @@ package mq
 import (
 	"context"
 	"fmt"
-	"gmq/logs"
 	"os"
 	"os/signal"
 	"strings"
 	"sync"
 	"syscall"
 
-	"gmq/utils"
-
+	"github.com/wuzhc/gmq/logs"
+	"github.com/wuzhc/gmq/utils"
 	"gopkg.in/ini.v1"
 )
 

@@ -2,13 +2,13 @@ package mq
 
 import (
 	"fmt"
-	"gmq/logs"
-	"gmq/utils"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/gomodule/redigo/redis"
+	"github.com/wuzhc/gmq/logs"
+	"github.com/wuzhc/gmq/utils"
 )
 
 var (
