@@ -9,7 +9,7 @@ const (
 	MSG_MAX_DELAY      = 259200 // 最大延迟时间
 	MSG_MAX_TTR        = 30     // 最大超时时间
 	MSG_MAX_RETRY      = 5      // 消息最大重试次数
-	MSG_DELAY_INTERVAL = 10     // 延时间隔,第一次60,第二次120,第三次180,最大为MSG_MAX_RETRY次
+	MSG_DELAY_INTERVAL = 60     // 延时间隔,第一次60,第二次120,第三次180,最大为MSG_MAX_RETRY次
 )
 
 var (
@@ -17,7 +17,7 @@ var (
 )
 
 type RespMsgData struct {
-	Id    uint64 `json:"id"`
+	Id    string `json:"id"`
 	Body  string `json:"body"`
 	Retry uint16 `json:"retry_count"`
 }

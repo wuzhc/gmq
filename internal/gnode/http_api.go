@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -63,7 +64,7 @@ func (h *HttpApi) Pop(c *HttpServContext) {
 	}
 
 	data := RespMsgData{
-		Id:    msg.Id,
+		Id:    strconv.FormatUint(msg.Id, 10),
 		Body:  string(msg.Body),
 		Retry: msg.Retry,
 	}
@@ -92,8 +93,9 @@ func (h *HttpApi) Push(c *HttpServContext) {
 		return
 	}
 
-	var rsp = make(map[string]uint64)
-	rsp["msgId"] = msgId
+	var rsp = make(map[string]string)
+	rsp["msgId"] = strconv.FormatUint(msgId, 10)
+	fmt.Println("push", msgId, rsp)
 	c.JsonData(rsp)
 }
 

@@ -146,7 +146,7 @@ func (c *TcpConn) PUB(params [][]byte) error {
 		c.LogError(err)
 		c.RespErr(err)
 	} else {
-		c.RespRes(strconv.FormatInt(int64(msgId), 10))
+		c.RespRes(strconv.FormatUint(msgId, 10))
 	}
 
 	return nil
@@ -351,7 +351,7 @@ func (c *TcpConn) RespMsg(msg *Msg) bool {
 	msgData := RespMsgData{}
 	msgData.Body = string(msg.Body)
 	msgData.Retry = msg.Retry
-	msgData.Id = msg.Id
+	msgData.Id = strconv.FormatUint(msg.Id, 10)
 
 	data, err := json.Marshal(msgData)
 	if err != nil {
@@ -369,7 +369,7 @@ func (c *TcpConn) RespMsgs(msgs []*Msg) bool {
 		msgData := RespMsgData{}
 		msgData.Body = string(msg.Body)
 		msgData.Retry = msg.Retry
-		msgData.Id = msg.Id
+		msgData.Id = strconv.FormatUint(msg.Id, 10)
 		v = append(v, msgData)
 		msg = nil
 	}

@@ -236,7 +236,6 @@ func (d *Dispatcher) resizePool(topicNum int, workCh chan *Topic, closeCh chan i
 // 每一条消息都需要dispatcher统一分配msg.Id
 func (d *Dispatcher) push(name string, data []byte, delay int) (uint64, error) {
 	msgId := d.snowflake.Generate()
-
 	msg := &Msg{}
 	msg.Id = msgId
 	msg.Delay = uint32(delay)
