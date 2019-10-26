@@ -1,11 +1,11 @@
 package gregister
 
 import (
-	"bytes"
+	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -165,28 +165,40 @@ func (gr *Gregister) heartbeat() {
 			if len(gr.nodes) == 0 {
 				continue
 			}
-
 			for i, n := range gr.nodes {
-				url := fmt.Sprintf("http://%s/ping", n.HttpAddr)
-				resp, err := http.Get(url)
-				if err != nil {
+				if err := pingHttpAddr(n.HttpAddr); err != nil {
 					fmt.Println(err)
-					gr.removeNode(i)
-					continue
-				}
-				res, err := ioutil.ReadAll(resp.Body)
-				if err != nil {
-					fmt.Println(err)
-					gr.removeNode(i)
-					continue
-				}
-				if !bytes.Equal(res, []byte{'O', 'K'}) {
-					fmt.Println(res, string(res), []byte{'O', 'K'})
 					gr.removeNode(i)
 				}
 			}
 		}
 	}
+}
+
+func pingHttpAddr(addr string) error {
+	url := fmt.Sprintf("http://%s/ping", addr)
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode == 200 {
+		return nil
+	} else {
+		return errors.New(fmt.Sprintf("register http addr %v failed, the code is %v", url, resp.StatusCode))
+	}
+}
+
+func pingTcpAddr(addr string) error {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return err
+	}
+
+	conn.Close()
+	return nil
 }
 
 // 移除节点

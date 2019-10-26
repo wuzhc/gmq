@@ -42,7 +42,7 @@ func (h *HttpApi) Pop(c *HttpServContext) {
 
 	// if topic.isAutoAck is false, add to waiting queue
 	if !t.isAutoAck {
-		msg.Retry += 1
+		msg.Retry = msg.Retry + 1
 		msg.Delay = uint32(msg.Retry) * MSG_DELAY_INTERVAL
 		msg.Expire = int64(msg.Delay) + time.Now().Unix()
 		if msg.Retry > MSG_MAX_RETRY {
@@ -81,20 +81,23 @@ func (h *HttpApi) Push(c *HttpServContext) {
 	}
 
 	msg := RecvMsgData{}
-	if err := json.Unmarshal([]byte(data), msg); err != nil {
+	if err := json.Unmarshal([]byte(data), &msg); err != nil {
 		c.JsonErr(err)
 		return
 	}
 
-	if _, err := h.ctx.Dispatcher.push(msg.Topic, []byte(msg.Body), msg.Delay); err != nil {
+	msgId, err := h.ctx.Dispatcher.push(msg.Topic, []byte(msg.Body), msg.Delay)
+	if err != nil {
 		c.JsonErr(err)
 		return
 	}
 
-	c.JsonSuccess("push success")
+	var rsp = make(map[string]uint64)
+	rsp["msgId"] = msgId
+	c.JsonData(rsp)
 }
 
-// curl http://127.0.0.1:9504/ack?msgI=xxx&topic=xxx
+// curl http://127.0.0.1:9504/ack?msgId=xxx&topic=xxx
 func (h *HttpApi) Ack(c *HttpServContext) {
 	msgId := c.GetInt64("msgId")
 	if msgId == 0 {
@@ -108,6 +111,24 @@ func (h *HttpApi) Ack(c *HttpServContext) {
 	}
 
 	if err := h.ctx.Dispatcher.ack(topic, uint64(msgId)); err != nil {
+		c.JsonErr(err)
+	} else {
+		c.JsonSuccess("success")
+	}
+}
+
+// curl http://127.0.0.1:9504/pop?topic=xxx
+// 消费任务
+func (h *HttpApi) Set(c *HttpServContext) {
+	isAutoAck := c.GetInt("isAutoAck")
+	topic := c.Get("topic")
+	if len(topic) == 0 {
+		c.JsonErr(errors.New("topic is empty"))
+		return
+	}
+
+	t := h.ctx.Dispatcher.GetTopic(topic)
+	if err := t.set(isAutoAck); err != nil {
 		c.JsonErr(err)
 	} else {
 		c.JsonSuccess("success")

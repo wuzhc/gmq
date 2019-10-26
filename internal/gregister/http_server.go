@@ -39,6 +39,7 @@ func (s *HttpServ) Run() {
 	mux.handle("/register", api.Register)
 	mux.handle("/unregister", api.Unregister)
 	mux.handle("/getNodes", api.GetNodes)
+	mux.handle("/editWeight", api.EditWeight)
 
 	addr := s.ctx.Conf.HttpServAddr
 	serv := &http.Server{

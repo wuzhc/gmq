@@ -41,10 +41,10 @@ func (gn *Gnode) Run() {
 	defer gn.wg.Wait()
 
 	if atomic.LoadInt32(&gn.running) == 1 {
-		log.Fatalln("Gnode is running.")
+		log.Fatalln("gnode is running.")
 	}
 	if !atomic.CompareAndSwapInt32(&gn.running, 0, 1) {
-		log.Fatalln("Gnode start failed.")
+		log.Fatalln("gnode start failed.")
 	}
 
 	if gn.cfg == nil {
@@ -62,7 +62,7 @@ func (gn *Gnode) Run() {
 	gn.wg.Wrap(NewTcpServ(ctx).Run)
 
 	if err := gn.register(); err != nil {
-		log.Fatalln("Register failed, ", err)
+		log.Fatalln("register failed, ", err)
 	}
 
 	gn.installSignalHandler()
@@ -72,7 +72,7 @@ func (gn *Gnode) Run() {
 // 退出应用
 func (gn *Gnode) Exit() {
 	if err := gn.unregister(); err != nil {
-		log.Fatalln("failed")
+		log.Fatalln("unregister failed")
 	}
 
 	close(gn.exitChan)
