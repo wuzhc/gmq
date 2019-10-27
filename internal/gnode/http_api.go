@@ -204,11 +204,12 @@ func (h *HttpApi) SetIsAutoAck(c *HttpServContext) {
 		return
 	}
 
+	var vv int
 	v := topic.isAutoAck
 	if v {
-		vv = false
+		vv = 0
 	} else {
-		vv = true
+		vv = 1
 	}
 	if err := topic.set(vv); err != nil {
 		c.JsonErr(err)
