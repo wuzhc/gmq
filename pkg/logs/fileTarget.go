@@ -44,7 +44,7 @@ func (f *fileTarget) WriteMsg(data logData) {
 	defer f.Unlock()
 
 	// 如果消息的等级比配置文件的高,则不写日志文件
-	// 例如f.Level为LOG_WARN时,表示只写入LOG_WARN和LOG_ERROR的消息
+	// 级别也高,值越小,参考LOG_ERROR,LOG_WARN,LOG_INFO等常量值
 	if data.level > f.Level {
 		return
 	}

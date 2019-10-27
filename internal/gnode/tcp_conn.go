@@ -217,7 +217,7 @@ func (c *TcpConn) POP(params [][]byte) error {
 	}
 
 	topic := string(params[0])
-	msg, err := c.serv.ctx.Dispatcher.pop(topic)
+	msg, fid, offset, err := c.serv.ctx.Dispatcher.pop(topic)
 	defer func() {
 		msg = nil
 	}()
@@ -230,25 +230,9 @@ func (c *TcpConn) POP(params [][]byte) error {
 	// if topic.isAutoAck is false, add to waiting queue
 	t := c.serv.ctx.Dispatcher.GetTopic(topic)
 	if !t.isAutoAck {
-		msg.Retry += 1
-		msg.Delay = uint32(msg.Retry) * MSG_DELAY_INTERVAL
-		msg.Expire = int64(msg.Delay) + time.Now().Unix()
-		if msg.Retry > MSG_MAX_RETRY {
-			t.LogWarn("noauto ack to failure bucket")
-			if err := t.pushMsgToDeadBucket(msg); err != nil {
-				c.RespErr(err)
-				return nil
-			}
-		} else {
-			if err := t.pushMsgToBucket(msg); err != nil {
-				c.RespErr(err)
-				return nil
-			}
-
-			t.waitAckMux.Lock()
-			t.waitAckMap[msg.Id] = msg.Expire
-			t.waitAckMux.Unlock()
-		}
+		t.waitAckMux.Lock()
+		t.waitAckMap[msg.Id] = []int{fid, offset}
+		t.waitAckMux.Unlock()
 	}
 
 	c.RespMsg(msg)

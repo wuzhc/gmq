@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"time"
 )
 
 type HttpApi struct {
@@ -32,7 +31,7 @@ func (h *HttpApi) Pop(c *HttpServContext) {
 	}
 
 	t := h.ctx.Dispatcher.GetTopic(topic)
-	msg, err := t.pop()
+	msg, fid, offset, err := t.pop()
 	defer func() {
 		msg = nil
 	}()
@@ -43,24 +42,9 @@ func (h *HttpApi) Pop(c *HttpServContext) {
 
 	// if topic.isAutoAck is false, add to waiting queue
 	if !t.isAutoAck {
-		msg.Retry = msg.Retry + 1
-		msg.Delay = uint32(msg.Retry) * MSG_DELAY_INTERVAL
-		msg.Expire = int64(msg.Delay) + time.Now().Unix()
-		if msg.Retry > MSG_MAX_RETRY {
-			if err := t.pushMsgToDeadBucket(msg); err != nil {
-				c.JsonErr(err)
-				return
-			}
-		} else {
-			if err := t.pushMsgToBucket(msg); err != nil {
-				c.JsonErr(err)
-				return
-			}
-
-			t.waitAckMux.Lock()
-			t.waitAckMap[msg.Id] = msg.Expire
-			t.waitAckMux.Unlock()
-		}
+		t.waitAckMux.Lock()
+		t.waitAckMap[msg.Id] = []int{fid, offset}
+		t.waitAckMux.Unlock()
 	}
 
 	data := RespMsgData{

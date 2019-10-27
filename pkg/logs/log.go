@@ -18,9 +18,9 @@ import (
 const (
 	LOG_ERROR = iota
 	LOG_WARN
-	LOG_DEBUG
 	LOG_INFO
 	LOG_TRACE
+	LOG_DEBUG
 )
 
 const (

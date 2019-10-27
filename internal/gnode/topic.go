@@ -32,7 +32,7 @@ type Topic struct {
 	isAutoAck  bool
 	dispatcher *Dispatcher
 	exitChan   chan struct{}
-	waitAckMap map[uint64]int64
+	waitAckMap map[uint64][]int
 	waitAckMux sync.Mutex
 	sync.Mutex
 }
@@ -42,9 +42,12 @@ type TopicMeta struct {
 	PushNum     int64       `json:"push_num"`
 	WriteFid    int         `json:"write_fid"`
 	ReadFid     int         `json:"read_fid"`
+	ScanFid     int         `json:"scan_fid"`
 	WriteOffset int         `json:"write_offset"`
 	ReadOffset  int         `json:"read_offset"`
+	ScanOffset  int         `json:"scan_offset"`
 	WriteFMap   map[int]int `json:"write_file_map"`
+	ReadFMap    map[int]int `json:"read_file_map"`
 	IsAutoAck   bool        `json:"is_auto_ack"`
 }
 
@@ -55,7 +58,7 @@ func NewTopic(name string, ctx *Context) *Topic {
 		isAutoAck:  false,
 		exitChan:   make(chan struct{}),
 		queue:      NewQueue(name),
-		waitAckMap: make(map[uint64]int64),
+		waitAckMap: make(map[uint64][]int),
 		dispatcher: ctx.Dispatcher,
 		startTime:  time.Now(),
 	}
@@ -106,9 +109,32 @@ func (t *Topic) init() {
 	t.popNum = meta.PopNum
 	t.pushNum = meta.PushNum
 	t.isAutoAck = meta.IsAutoAck
-	err = t.queue.setByMetaData(meta.ReadFid, meta.ReadOffset, meta.WriteFid, meta.WriteOffset, meta.WriteFMap)
-	if err != nil {
-		t.LogError(fmt.Sprintf("init %s.queue failed, %v", t.name, err))
+
+	// 恢复读进度
+	t.queue.r.fid = meta.ReadFid
+	t.queue.r.offset = meta.ReadOffset
+	t.queue.r.rmap = meta.ReadFMap
+	if meta.ReadFid > 0 {
+		if err := t.queue.r.mmap(t.queue.name); err != nil {
+			t.LogError(fmt.Sprintf("init %s.queue.read failed, %v", t.name, err))
+		}
+	}
+	// 恢复写进度
+	t.queue.w.fid = meta.WriteFid
+	t.queue.w.offset = meta.WriteOffset
+	t.queue.w.wmap = meta.WriteFMap
+	if meta.WriteFid > 0 {
+		if err := t.queue.w.mmap(t.queue.name); err != nil {
+			t.LogError(fmt.Sprintf("init %s.queue.write failed, %v", t.name, err))
+		}
+	}
+	// 恢复扫描进度
+	t.queue.s.fid = meta.ScanFid
+	t.queue.s.offset = meta.ScanOffset
+	if meta.ScanFid > 0 {
+		if err := t.queue.s.mmap(t.queue.name); err != nil {
+			t.LogError(fmt.Sprintf("init %s.queue.scan failed, %v", t.name, err))
+		}
 	}
 }
 
@@ -135,6 +161,7 @@ func (t *Topic) exit() {
 		WriteOffset: t.queue.w.offset,
 		ReadOffset:  t.queue.r.offset,
 		WriteFMap:   t.queue.w.wmap,
+		ReadFMap:    t.queue.r.rmap,
 		IsAutoAck:   t.isAutoAck,
 	}
 	data, err := json.Marshal(meta)
@@ -155,7 +182,7 @@ func (t *Topic) push(msg *Msg) error {
 	}()
 
 	if msg.Delay > 0 {
-		msg.Expire = int64(msg.Delay) + time.Now().Unix()
+		msg.Expire = uint64(msg.Delay) + uint64(time.Now().Unix())
 		return t.pushMsgToBucket(msg)
 	}
 	if err := t.queue.write(Encode(msg)); err != nil {
@@ -207,9 +234,9 @@ func (t *Topic) mpush(msgIds []uint64, msgs [][]byte, delays []int) error {
 }
 
 // bucket.key : delay - msgId
-func creatBucketKey(msgId uint64, delay int64) []byte {
+func creatBucketKey(msgId uint64, expire uint64) []byte {
 	var buf = make([]byte, 16)
-	binary.BigEndian.PutUint64(buf[:8], uint64(delay))
+	binary.BigEndian.PutUint64(buf[:8], expire)
 	binary.BigEndian.PutUint64(buf[8:], msgId)
 	return buf
 }
@@ -253,7 +280,7 @@ func (t *Topic) pushMsgToDeadBucket(msg *Msg) error {
 		}
 
 		bucket := tx.Bucket([]byte(name))
-		key := creatBucketKey(msg.Id, time.Now().Unix())
+		key := creatBucketKey(msg.Id, 0)
 		// t.LogInfo(fmt.Sprintf("%v-%v-%v write in bucket", delayTime, msgId, key))
 		if err := bucket.Put(key, Encode(msg)); err != nil {
 			return err
@@ -277,11 +304,11 @@ func (t *Topic) mpushMsgToBucket(msgIds []uint64, msgs [][]byte, delays []int) e
 			return errors.New(fmt.Sprintf("create bucket: %s", err))
 		}
 
-		now := time.Now().Unix()
+		now := uint64(time.Now().Unix())
 		bucket := tx.Bucket([]byte(t.name))
 
 		for i := 0; i < len(msgIds); i++ {
-			key := creatBucketKey(msgIds[i], now+int64(delays[i]))
+			key := creatBucketKey(msgIds[i], now+uint64(delays[i]))
 			if err := bucket.Put(key, msgs[i]); err != nil {
 				return err
 			}
@@ -351,22 +378,70 @@ func (t *Topic) retrievalBucketExpireMsg() error {
 	return nil
 }
 
+// 检测队列未得到确认而超时消息
+func (t *Topic) retrievalQueueExipreMsg() error {
+	if t.closed {
+		err := errors.New(fmt.Sprintf("topic.%s has exit.", t.name))
+		t.LogWarn(err)
+		return err
+	}
+
+	num := 0
+	for {
+		data, err := t.queue.scan()
+		if err != nil {
+			t.LogError(err)
+			break
+		}
+
+		msg := Decode(data)
+		if msg.Id == 0 {
+			msg = nil
+			break
+		}
+
+		msg.Retry = msg.Retry + 1 // incr retry number
+		if msg.Retry > MSG_MAX_RETRY {
+			t.LogWarn("noauto ack to failure bucket")
+			if err := t.pushMsgToDeadBucket(msg); err != nil {
+				t.LogError(err)
+				break
+			} else {
+				continue
+			}
+		}
+
+		if err := t.queue.write(Encode(msg)); err != nil {
+			t.LogError(err)
+			break
+		} else {
+			num++
+		}
+	}
+
+	if num > 0 {
+		return nil
+	} else {
+		return ErrMessageNotExist
+	}
+}
+
 // 消息消费
-func (t *Topic) pop() (*Msg, error) {
-	data, err := t.queue.read()
+func (t *Topic) pop() (*Msg, int, int, error) {
+	data, fid, offset, err := t.queue.read(t.isAutoAck)
 	if err != nil {
-		return nil, err
+		return nil, 0, 0, err
 	}
 
 	msg := Decode(data)
 	if msg.Id > 0 {
 		atomic.AddInt64(&t.popNum, 1)
-		return msg, nil
+		return msg, fid, offset, nil
 	} else {
 		msg = nil
 	}
 
-	return nil, errors.New("message decode failed.")
+	return nil, 0, 0, errors.New("message decode failed.")
 }
 
 // 私信队列
@@ -402,21 +477,18 @@ func (t *Topic) dead(num int) (msgs []*Msg, err error) {
 
 // 消息确认
 func (t *Topic) ack(msgId uint64) error {
-	delay, ok := t.waitAckMap[msgId]
+	info, ok := t.waitAckMap[msgId]
 	if !ok {
 		return errors.New(fmt.Sprintf("msgId:%v is not exist", msgId))
 	}
 
-	return t.dispatcher.db.Update(func(tx *bolt.Tx) error {
-		key := creatBucketKey(msgId, delay)
-		bucket := tx.Bucket([]byte(t.name))
-		if err := bucket.Delete(key); err != nil {
-			return err
-		} else {
-			delete(t.waitAckMap, msgId)
-			return nil
-		}
-	})
+	if err := t.queue.ack(info[0], info[1]); err != nil {
+		return err
+	} else {
+		delete(t.waitAckMap, msgId)
+	}
+
+	return nil
 }
 
 // 设置topic信息
@@ -464,5 +536,13 @@ func (t *Topic) LogWarn(msg interface{}) {
 }
 
 func (t *Topic) LogInfo(msg interface{}) {
+	t.ctx.Logger.Info(logs.LogCategory(fmt.Sprintf("Topic.%s", t.name)), msg)
+}
+
+func (t *Topic) Debug(msg interface{}) {
+	t.ctx.Logger.Info(logs.LogCategory(fmt.Sprintf("Topic.%s", t.name)), msg)
+}
+
+func (t *Topic) Debug(msg interface{}) {
 	t.ctx.Logger.Info(logs.LogCategory(fmt.Sprintf("Topic.%s", t.name)), msg)
 }
