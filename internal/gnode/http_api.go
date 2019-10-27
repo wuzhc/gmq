@@ -79,7 +79,6 @@ func (h *HttpApi) Push(c *HttpServContext) {
 
 	var rsp = make(map[string]string)
 	rsp["msgId"] = strconv.FormatUint(msgId, 10)
-	fmt.Println("push", msgId, rsp)
 	c.JsonData(rsp)
 }
 

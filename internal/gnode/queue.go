@@ -3,15 +3,23 @@
 //	- rfid为0,roffset为0
 // 	- 初始化一个totalSize大小的文件,内容为0,totalSzie大小为pageSize的整数倍
 
-// 写入:
+// 写(生产消息):
+// 	- wfid为写文件编号,woffset为当前写偏移量,两个字段表示当前写到哪个文件哪个位置
 // 	- 维护一个wfid和offset的map表
 //	- wfid为0,初始化一个totalSize大小的文件,内容为0,totalSzie大小为pageSize的整数倍,执行映射,wfid加1
 //	- 根据woffset,写入内容,更新woffset
 
-// 读取:
+// 读(消费消息):
+//  - rfid为读文件编号,roffset为当前读偏移量,两个字段表示当前读到哪个文件哪个位置
 // 	- rfid为0,rfid加1,查看文件是否存在,存在则映射
 // 	- 根据roffset和woffset读取内容,更新roffset
-//	- 读取完毕,删除数据文件,删除写入的map表记录
+//	- 读取完毕,删除写步骤的map表记录
+
+// 扫(确认消息):
+//  - sfid为扫文件编号,soffset为当前扫偏移量,两个字段表示当前扫描到哪个文件哪个位置
+// 	- sfid为0,sfid加1,查看文件是否存在,存在则映射
+// 	- 根据soffset和roffset读取内容,更新soffset
+//	- 扫描完毕,删除数据文件,删除读步骤的map表记录
 package gnode
 
 import (
@@ -23,6 +31,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/wuzhc/gmq/pkg/logs"
 )
 
 // const FILE_SIZE = 2 << 32 // 4G
@@ -34,6 +44,7 @@ type queue struct {
 	r    *reader
 	s    *scanner
 	name string
+	ctx  *Context
 	sync.RWMutex
 }
 
@@ -60,9 +71,10 @@ type scanner struct {
 	flag   bool   // 是否已映射
 }
 
-func NewQueue(name string) *queue {
+func NewQueue(name string, ctx *Context) *queue {
 	return &queue{
 		name: name,
+		ctx:  ctx,
 		w:    &writer{wmap: make(map[int]int)},
 		r:    &reader{rmap: make(map[int]int)},
 		s:    &scanner{},
@@ -166,13 +178,14 @@ func (s *scanner) unmap(queueName string) error {
 
 // 队列扫描未确认消息
 func (q *queue) scan() ([]byte, error) {
-	fmt.Println("queue.offset", "scan.offset", q.s.offset, "read.offset", q.r.offset, "write.offset", q.w.offset)
+	q.LogDebug(fmt.Sprintf("scan.offset:%v read.offset:%v write.offset:%v", q.s.offset, q.r.offset, q.w.offset))
+
 	if !q.s.flag {
 		q.s.fid++
 		if err := q.s.mmap(q.name); err != nil {
 			q.s.fid--
 			if os.IsNotExist(err) {
-				return nil, errors.New("client did't start read.")
+				return nil, errors.New("write has not started.")
 			} else {
 				return nil, err
 			}
@@ -182,7 +195,7 @@ func (q *queue) scan() ([]byte, error) {
 	soffset := q.s.offset
 	roffset, ok := q.r.rmap[q.s.fid]
 	if !ok {
-		return nil, errors.New("can't find read offset.")
+		return nil, errors.New("read has not started.")
 	}
 
 	// 当scan.offset == read.offset时,有两种情况
@@ -218,7 +231,7 @@ func (q *queue) scan() ([]byte, error) {
 
 	// 消息未超时
 	expireTime := binary.BigEndian.Uint64(q.s.data[soffset+7 : soffset+15])
-	// fmt.Println("scanner-expire:", expireTime, "now:", uint64(time.Now().Unix()), "offset:", soffset)
+	q.LogDebug(fmt.Sprintf("msg.expire:%v now:%v", expireTime, time.Now().Unix()))
 	if expireTime > uint64(time.Now().Unix()) {
 		return nil, errors.New("no message expire.")
 	}
@@ -355,8 +368,8 @@ func (q *queue) read(isAutoAck bool) ([]byte, int, int, error) {
 		binary.BigEndian.PutUint16(q.r.data[roffset+1:roffset+3], uint16(MSG_STATUS_FIN))
 	} else {
 		binary.BigEndian.PutUint16(q.r.data[roffset+1:roffset+3], uint16(MSG_STATUS_WAIT))
-		binary.BigEndian.PutUint64(q.r.data[roffset+7:roffset+15], uint64(time.Now().Unix())+uint64(MSG_TTR))
-		fmt.Println("message has been read, the time is", uint64(time.Now().Unix())+MSG_TTR, uint64(time.Now().Unix())+uint64(MSG_TTR))
+		binary.BigEndian.PutUint64(q.r.data[roffset+7:roffset+15], uint64(time.Now().Unix())+uint64(q.ctx.Conf.MsgTTR))
+		q.LogDebug(fmt.Sprintf("msg had been readed. exipire time is %v", uint64(time.Now().Unix())+uint64(q.ctx.Conf.MsgTTR)))
 	}
 
 	msgLen := int(binary.BigEndian.Uint32(q.r.data[roffset+3 : roffset+7]))
@@ -420,4 +433,24 @@ func (q *queue) write(msg []byte) error {
 	q.w.wmap[q.w.fid] = q.w.offset
 
 	return nil
+}
+
+func (q *queue) LogError(msg interface{}) {
+	q.ctx.Logger.Error(logs.LogCategory(fmt.Sprintf("Queue.%s", q.name)), msg)
+}
+
+func (q *queue) LogWarn(msg interface{}) {
+	q.ctx.Logger.Warn(logs.LogCategory(fmt.Sprintf("Queue.%s", q.name)), msg)
+}
+
+func (q *queue) LogInfo(msg interface{}) {
+	q.ctx.Logger.Info(logs.LogCategory(fmt.Sprintf("Queue.%s", q.name)), msg)
+}
+
+func (q *queue) LogDebug(msg interface{}) {
+	q.ctx.Logger.Debug(logs.LogCategory(fmt.Sprintf("Queue.%s", q.name)), msg)
+}
+
+func (q *queue) LogTrace(msg interface{}) {
+	q.ctx.Logger.Trace(logs.LogCategory(fmt.Sprintf("Queue.%s", q.name)), msg)
 }

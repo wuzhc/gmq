@@ -43,12 +43,6 @@ func (f *fileTarget) WriteMsg(data logData) {
 	f.Lock()
 	defer f.Unlock()
 
-	// 如果消息的等级比配置文件的高,则不写日志文件
-	// 级别也高,值越小,参考LOG_ERROR,LOG_WARN,LOG_INFO等常量值
-	if data.level > f.Level {
-		return
-	}
-
 	// 旋转日志
 	if f.Rotate && f.curSize > 0 && f.curSize >= f.MaxSize {
 		f.rotateFile()

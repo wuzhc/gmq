@@ -30,7 +30,7 @@ type Dispatcher struct {
 }
 
 func NewDispatcher(ctx *Context) *Dispatcher {
-	sn, err := utils.NewSnowflake(ctx.Conf.NodeId)
+	sn, err := utils.NewSnowflake(int64(ctx.Conf.NodeId))
 	if err != nil {
 		panic(err)
 	}

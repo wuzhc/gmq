@@ -14,7 +14,6 @@ const (
 	MSG_MAX_DELAY = 259200 // 最大延迟时间
 	MSG_MAX_TTR   = 30     // 最大超时时间
 	MSG_MAX_RETRY = 5      // 消息最大重试次数
-	MSG_TTR       = 5      // 消息超时时间,默认60秒内未得到确认将再次被消费
 )
 
 var (

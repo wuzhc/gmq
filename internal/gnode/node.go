@@ -96,8 +96,10 @@ func (gn *Gnode) SetConfig(cfgFile string) {
 	cfg := new(configs.GnodeConfig)
 
 	// node
-	nodeId, _ := c.Section("node").Key("id").Int64()
-	nodeWeight, _ := c.Section("node").Key("weight").Int64()
+	nodeId, _ := c.Section("node").Key("id").Int()
+	nodeWeight, _ := c.Section("node").Key("weight").Int()
+	msgTTR, _ := c.Section("node").Key("msgTTR").Int()
+	msgMaxRetry, _ := c.Section("node").Key("msgMaxRetry").Int()
 
 	// log config
 	cfg.LogFilename = c.Section("log").Key("filename").String()
@@ -105,17 +107,6 @@ func (gn *Gnode) SetConfig(cfgFile string) {
 	cfg.LogRotate, _ = c.Section("log").Key("rotate").Bool()
 	cfg.LogMaxSize, _ = c.Section("log").Key("max_size").Int()
 	cfg.LogTargetType = c.Section("log").Key("target_type").String()
-
-	// redis config
-	cfg.RedisHost = c.Section("redis").Key("host").String()
-	cfg.RedisPwd = c.Section("redis").Key("pwd").String()
-	cfg.RedisPort = c.Section("redis").Key("port").String()
-	cfg.RedisMaxIdle, _ = c.Section("redis").Key("max_idle").Int()
-	cfg.RedisMaxActive, _ = c.Section("redis").Key("max_active").Int()
-
-	// bucket config
-	cfg.BucketNum, _ = c.Section("bucket").Key("num").Int()
-	cfg.TTRBucketNum, _ = c.Section("TTRBucket").Key("num").Int()
 
 	// http server config
 	httpServAddr := c.Section("http_server").Key("addr").String()
@@ -136,8 +127,10 @@ func (gn *Gnode) SetConfig(cfgFile string) {
 	flag.StringVar(&cfg.TcpServAddr, "tcp_addr", tcpServAddr, "tcp address")
 	flag.StringVar(&cfg.HttpServAddr, "http_addr", httpServAddr, "http address")
 	flag.StringVar(&cfg.GregisterAddr, "register_addr", registerAddr, "register address")
-	flag.Int64Var(&cfg.NodeId, "node_id", nodeId, "node unique id")
-	flag.Int64Var(&cfg.NodeWeight, "node_weight", nodeWeight, "node weight")
+	flag.IntVar(&cfg.NodeId, "node_id", nodeId, "node unique id")
+	flag.IntVar(&cfg.NodeWeight, "node_weight", nodeWeight, "node weight")
+	flag.IntVar(&cfg.MsgTTR, "msg_ttr", msgTTR, "msg ttr")
+	flag.IntVar(&cfg.MsgMaxRetry, "msg_max_retry", msgMaxRetry, "msg max retry")
 	flag.Parse()
 
 	gn.cfg = cfg
@@ -151,8 +144,10 @@ func (gn *Gnode) SetDefaultConfig() {
 	flag.StringVar(&cfg.TcpServAddr, "tcp_addr", "", "tcp address")
 	flag.StringVar(&cfg.GregisterAddr, "register_addr", "", "register address")
 	flag.StringVar(&cfg.HttpServAddr, "http_addr", "", "http address")
-	flag.Int64Var(&cfg.NodeId, "node_id", 1, "node unique id")
-	flag.Int64Var(&cfg.NodeWeight, "node_weight", 1, "node weight")
+	flag.IntVar(&cfg.NodeId, "node_id", 1, "node unique id")
+	flag.IntVar(&cfg.NodeWeight, "node_weight", 1, "node weight")
+	flag.IntVar(&cfg.MsgTTR, "msg_ttr", 60, "msg ttr")
+	flag.IntVar(&cfg.MsgMaxRetry, "msg_max_retry", 5, "msg max retry")
 	flag.Parse()
 
 	gn.cfg = cfg
@@ -172,11 +167,11 @@ func (gn *Gnode) installSignalHandler() {
 
 // 初始化日志组件
 func (gn *Gnode) initLogger() *logs.Dispatcher {
-	logger := logs.NewDispatcher()
+	logger := logs.NewDispatcher(gn.cfg.LogLevel)
 	targets := strings.Split(gn.cfg.LogTargetType, ",")
 	for _, t := range targets {
 		if t == logs.TARGET_FILE {
-			conf := fmt.Sprintf(`{"filename":"%s","level":%d,"max_size":%d,"rotate":%v}`, gn.cfg.LogFilename, gn.cfg.LogLevel, gn.cfg.LogMaxSize, gn.cfg.LogRotate)
+			conf := fmt.Sprintf(`{"filename":"%s","max_size":%d,"rotate":%v}`, gn.cfg.LogFilename, gn.cfg.LogMaxSize, gn.cfg.LogRotate)
 			logger.SetTarget(logs.TARGET_FILE, conf)
 		} else if t == logs.TARGET_CONSOLE {
 			logger.SetTarget(logs.TARGET_CONSOLE, "")

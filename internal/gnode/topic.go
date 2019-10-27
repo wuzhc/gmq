@@ -57,7 +57,7 @@ func NewTopic(name string, ctx *Context) *Topic {
 		name:       name,
 		isAutoAck:  false,
 		exitChan:   make(chan struct{}),
-		queue:      NewQueue(name),
+		queue:      NewQueue(name, ctx),
 		waitAckMap: make(map[uint64][]int),
 		dispatcher: ctx.Dispatcher,
 		startTime:  time.Now(),
@@ -318,7 +318,7 @@ func (t *Topic) mpushMsgToBucket(msgIds []uint64, msgs [][]byte, delays []int) e
 	})
 }
 
-// 检索bucket中到期消息写入到队列
+// 检索延迟消息
 func (t *Topic) retrievalBucketExpireMsg() error {
 	if t.closed {
 		err := errors.New(fmt.Sprintf("topic.%s has exit.", t.name))
@@ -344,23 +344,21 @@ func (t *Topic) retrievalBucketExpireMsg() error {
 				continue
 			}
 
-			// 因为消息是有序的,当一个消息的到期时间比当前时间大,说明之后信息都还未到期
-			// 此时可以退出检索了
+			// 因为消息是有序的,当一个消息的到期时间比当前时间大,
+			// 说明之后信息都还未到期,此时可以退出检索了
 			if now < int64(delayTime) {
 				break
 			}
 
 			if err := t.queue.write(data); err != nil {
 				t.LogError(err)
-				continue
+				break
 			}
 			if err := bucket.Delete(key); err != nil {
 				t.LogError(err)
-				continue
+				break
 			}
 
-			// waitAckMap存储待确认的消息索引信息
-			delete(t.waitAckMap, msg.Id)
 			atomic.AddInt64(&t.pushNum, 1)
 			num++
 		}
@@ -378,7 +376,7 @@ func (t *Topic) retrievalBucketExpireMsg() error {
 	return nil
 }
 
-// 检测队列未得到确认而超时消息
+// 检测超时消息
 func (t *Topic) retrievalQueueExipreMsg() error {
 	if t.closed {
 		err := errors.New(fmt.Sprintf("topic.%s has exit.", t.name))
@@ -390,7 +388,7 @@ func (t *Topic) retrievalQueueExipreMsg() error {
 	for {
 		data, err := t.queue.scan()
 		if err != nil {
-			t.LogError(err)
+			t.LogDebug(err)
 			break
 		}
 
@@ -402,7 +400,7 @@ func (t *Topic) retrievalQueueExipreMsg() error {
 
 		msg.Retry = msg.Retry + 1 // incr retry number
 		if msg.Retry > MSG_MAX_RETRY {
-			t.LogWarn("noauto ack to failure bucket")
+			t.LogTrace(fmt.Sprintf("msg.Id %v has been added to dead queue.", msg.Id))
 			if err := t.pushMsgToDeadBucket(msg); err != nil {
 				t.LogError(err)
 				break
@@ -411,10 +409,16 @@ func (t *Topic) retrievalQueueExipreMsg() error {
 			}
 		}
 
+		// 消息到期,重新添加到队列等待再次被消费
 		if err := t.queue.write(Encode(msg)); err != nil {
 			t.LogError(err)
 			break
 		} else {
+			t.LogDebug(fmt.Sprintf("msg.Id %v has expire.", msg.Id))
+			t.waitAckMux.Lock()
+			delete(t.waitAckMap, msg.Id)
+			t.waitAckMux.Unlock()
+			atomic.AddInt64(&t.pushNum, 1)
 			num++
 		}
 	}
@@ -539,10 +543,10 @@ func (t *Topic) LogInfo(msg interface{}) {
 	t.ctx.Logger.Info(logs.LogCategory(fmt.Sprintf("Topic.%s", t.name)), msg)
 }
 
-func (t *Topic) Debug(msg interface{}) {
-	t.ctx.Logger.Info(logs.LogCategory(fmt.Sprintf("Topic.%s", t.name)), msg)
+func (t *Topic) LogDebug(msg interface{}) {
+	t.ctx.Logger.Debug(logs.LogCategory(fmt.Sprintf("Topic.%s", t.name)), msg)
 }
 
-func (t *Topic) Debug(msg interface{}) {
-	t.ctx.Logger.Info(logs.LogCategory(fmt.Sprintf("Topic.%s", t.name)), msg)
+func (t *Topic) LogTrace(msg interface{}) {
+	t.ctx.Logger.Trace(logs.LogCategory(fmt.Sprintf("Topic.%s", t.name)), msg)
 }

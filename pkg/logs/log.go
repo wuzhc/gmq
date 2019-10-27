@@ -43,9 +43,9 @@ type logData struct {
 }
 
 // 新建调度器
-func NewDispatcher() *Dispatcher {
+func NewDispatcher(lvl int) *Dispatcher {
 	return &Dispatcher{
-		Level: LOG_TRACE,
+		Level: lvl,
 	}
 }
 
@@ -87,6 +87,18 @@ func (d *Dispatcher) Error(msg ...interface{}) {
 	}
 
 	logData := wrapLogData(LOG_ERROR, msg...)
+	for _, tg := range d.Targets {
+		tg.hander.WriteMsg(logData)
+	}
+}
+
+// 追踪日志
+func (d *Dispatcher) Trace(msg ...interface{}) {
+	if d.Level < LOG_TRACE {
+		return
+	}
+
+	logData := wrapLogData(LOG_TRACE, msg...)
 	for _, tg := range d.Targets {
 		tg.hander.WriteMsg(logData)
 	}
@@ -148,30 +160,4 @@ func wrapLogData(level int, msg ...interface{}) (data logData) {
 	}
 
 	return
-}
-
-func NewFileHanlder(config ...string) *Dispatcher {
-	var conf string
-	if len(config) == 0 {
-		conf = `{"filename":"xxxx.log","level":10,"max_size":500,"rotate":true}`
-	} else {
-		conf = config[0]
-	}
-
-	dispatcher := NewDispatcher()
-	dispatcher.SetTarget(TARGET_FILE, conf)
-	return dispatcher
-}
-
-func NewConsoleHanlder(config ...string) *Dispatcher {
-	var conf string
-	if len(config) == 0 {
-		conf = "{}"
-	} else {
-		conf = config[0]
-	}
-
-	dispatcher := NewDispatcher()
-	dispatcher.SetTarget(TARGET_CONSOLE, conf)
-	return dispatcher
 }

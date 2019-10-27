@@ -35,7 +35,7 @@ func init() {
 func highlight(msg string, level int) string {
 	switch level {
 	case LOG_TRACE:
-		return Black(msg)
+		return Cyan(msg)
 	case LOG_ERROR:
 		return Red(msg)
 	case LOG_INFO:
