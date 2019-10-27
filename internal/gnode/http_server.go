@@ -38,6 +38,7 @@ func (s *HttpServ) Run() {
 	mux.handle("/ack", api.Ack)
 	mux.handle("/ping", api.Ping)
 	mux.handle("/exitTopic", api.ExitTopic)
+	mux.handle("/setIsAutoAck", api.SetIsAutoAck)
 	mux.handle("/getTopicStat", api.GetTopicStat)
 	mux.handle("/getAllTopicStat", api.GetAllTopicStat)
 

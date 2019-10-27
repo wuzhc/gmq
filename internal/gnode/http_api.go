@@ -189,6 +189,35 @@ func (h *HttpApi) ExitTopic(c *HttpServContext) {
 	c.JsonSuccess(fmt.Sprintf("topic.%s has exit.", name))
 }
 
+// 设置主题自动确认消息
+func (h *HttpApi) SetIsAutoAck(c *HttpServContext) {
+	name := c.Get("topic")
+	if len(name) == 0 {
+		c.JsonErr(errors.New("topic is empty"))
+		return
+	}
+
+	// topic不存在或没有被客户端请求
+	topic, err := h.ctx.Dispatcher.GetExistTopic(name)
+	if err != nil {
+		c.JsonErr(err)
+		return
+	}
+
+	v := topic.isAutoAck
+	if v {
+		vv = false
+	} else {
+		vv = true
+	}
+	if err := topic.set(vv); err != nil {
+		c.JsonErr(err)
+		return
+	}
+
+	c.JsonSuccess("success")
+}
+
 // 心跳接口
 func (h *HttpApi) Ping(c *HttpServContext) {
 	c.w.WriteHeader(http.StatusOK)
