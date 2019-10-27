@@ -29,6 +29,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -45,6 +46,7 @@ type queue struct {
 	s    *scanner
 	name string
 	ctx  *Context
+	num  int64
 	sync.RWMutex
 }
 
@@ -377,6 +379,7 @@ func (q *queue) read(isAutoAck bool) ([]byte, int, int, error) {
 	copy(msg, q.r.data[roffset+7:roffset+7+msgLen])
 	q.r.offset += 1 + 2 + 4 + msgLen
 	q.r.rmap[q.r.fid] = q.r.offset
+	atomic.AddInt64(&q.num, -1)
 
 	// 当读到文件末尾时,说明文件内消息已被全部读取,可解除映射并移除数据文件
 	if q.r.offset == woffset {
@@ -431,6 +434,7 @@ func (q *queue) write(msg []byte) error {
 
 	q.w.offset += 1 + 2 + 4 + msgLen
 	q.w.wmap[q.w.fid] = q.w.offset
+	atomic.AddInt64(&q.num, 1)
 
 	return nil
 }

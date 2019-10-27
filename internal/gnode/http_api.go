@@ -13,12 +13,15 @@ type HttpApi struct {
 }
 
 type topicData struct {
-	Name      string `json:"name"`
-	PopNum    int64  `json:"pop_num"`
-	PushNum   int64  `json:"push_num"`
-	BucketNum int    `json:"bucket_num"`
-	DeadNum   int    `json:"dead_num"`
-	StartTime string `json:"start_time"`
+	Name       string `json:"name"`
+	PopNum     int64  `json:"pop_num"`
+	PushNum    int64  `json:"push_num"`
+	QueueNum   int64  `json:"queue_num"`
+	DelayNum   int    `json:"delay_num"`
+	WaitAckNum int    `json:"wait_ack_num"`
+	DeadNum    int    `json:"dead_num"`
+	StartTime  string `json:"start_time"`
+	IsAutoAck  bool   `json:"is_auto_ack"`
 }
 
 // curl http://127.0.0.1:9504/pop?topic=xxx
@@ -121,7 +124,7 @@ func (h *HttpApi) Set(c *HttpServContext) {
 }
 
 // 获取指定topic统计信息
-// curl http://127.0.0.1/getTopicStat?topic=xxx
+// curl http://127.0.0.1:9504/getTopicStat?topic=xxx
 func (h *HttpApi) GetTopicStat(c *HttpServContext) {
 	name := c.Get("topic")
 	if len(name) == 0 {
@@ -139,14 +142,17 @@ func (h *HttpApi) GetTopicStat(c *HttpServContext) {
 	data.Name = t.name
 	data.PopNum = t.popNum
 	data.PushNum = t.pushNum
-	data.BucketNum = t.getBucketNum()
+	data.QueueNum = t.queue.num
+	data.DelayNum = t.getBucketNum()
 	data.DeadNum = t.getDeadNum()
+	data.WaitAckNum = len(t.waitAckMap)
+	data.IsAutoAck = t.isAutoAck
 	data.StartTime = t.startTime.Format("2006-01-02 15:04:05")
 	c.JsonData(data)
 }
 
 // 获取所有topic统计信息
-// curl http://127.0.0.1/getAllTopicStat
+// curl http://127.0.0.1:9504/getAllTopicStat
 // http://127.0.0.1:9504/getAllTopicStat
 func (h *HttpApi) GetAllTopicStat(c *HttpServContext) {
 	topics := h.ctx.Dispatcher.GetTopics()
@@ -157,8 +163,11 @@ func (h *HttpApi) GetAllTopicStat(c *HttpServContext) {
 		data.Name = t.name
 		data.PopNum = t.popNum
 		data.PushNum = t.pushNum
-		data.BucketNum = t.getBucketNum()
+		data.QueueNum = t.queue.num
+		data.WaitAckNum = len(t.waitAckMap)
+		data.DelayNum = t.getBucketNum()
 		data.DeadNum = t.getDeadNum()
+		data.IsAutoAck = t.isAutoAck
 		data.StartTime = t.startTime.Format("2006-01-02 15:04:05")
 		topicDatas[i] = data
 	}
@@ -167,7 +176,7 @@ func (h *HttpApi) GetAllTopicStat(c *HttpServContext) {
 }
 
 // 退出topic
-// curl http://127.0.0.1/exitTopic?topic=xxx
+// curl http://127.0.0.1:9504/exitTopic?topic=xxx
 // http://127.0.0.1:9504/exitTopic?topic=xxx
 func (h *HttpApi) ExitTopic(c *HttpServContext) {
 	name := c.Get("topic")
@@ -190,6 +199,8 @@ func (h *HttpApi) ExitTopic(c *HttpServContext) {
 }
 
 // 设置主题自动确认消息
+// curl http://127.0.0.1:9504/setIsAutoAck?topic=xxx
+// http://127.0.0.1:9504/setIsAutoAck?topic=xxx
 func (h *HttpApi) SetIsAutoAck(c *HttpServContext) {
 	name := c.Get("topic")
 	if len(name) == 0 {

@@ -22,6 +22,7 @@ import (
 )
 
 type Gnode struct {
+	version  string
 	running  int32
 	exitChan chan struct{}
 	ctx      context.Context
@@ -31,6 +32,7 @@ type Gnode struct {
 
 func New() *Gnode {
 	return &Gnode{
+		version:  "3.0",
 		ctx:      context.Background(),
 		exitChan: make(chan struct{}),
 	}

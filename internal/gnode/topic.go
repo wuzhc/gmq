@@ -40,6 +40,7 @@ type Topic struct {
 type TopicMeta struct {
 	PopNum      int64       `json:"pop_num"`
 	PushNum     int64       `json:"push_num"`
+	QueueNum    int64       `json:"queue_num"`
 	WriteFid    int         `json:"write_fid"`
 	ReadFid     int         `json:"read_fid"`
 	ScanFid     int         `json:"scan_fid"`
@@ -109,6 +110,7 @@ func (t *Topic) init() {
 	t.popNum = meta.PopNum
 	t.pushNum = meta.PushNum
 	t.isAutoAck = meta.IsAutoAck
+	t.queue.num = meta.QueueNum
 
 	// 恢复读进度
 	t.queue.r.fid = meta.ReadFid
@@ -156,6 +158,7 @@ func (t *Topic) exit() {
 	meta := TopicMeta{
 		PopNum:      t.popNum,
 		PushNum:     t.pushNum,
+		QueueNum:    t.queue.num,
 		WriteFid:    t.queue.w.fid,
 		ReadFid:     t.queue.r.fid,
 		ScanFid:     t.queue.s.fid,
