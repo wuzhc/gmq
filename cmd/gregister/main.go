@@ -9,6 +9,6 @@ import (
 
 func main() {
 	gr := gregister.New()
-	gr.SetConfig("./conf.ini")
+	// gr.SetConfig("./conf.ini")
 	gr.Run()
 }

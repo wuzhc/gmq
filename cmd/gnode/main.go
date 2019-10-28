@@ -13,6 +13,6 @@ func main() {
 	}()
 
 	gn := gnode.New()
-	gn.SetConfig("./conf.ini")
+	// gn.SetConfig("./conf.ini")
 	gn.Run()
 }
