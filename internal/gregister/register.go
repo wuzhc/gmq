@@ -126,11 +126,11 @@ func (gr *Gregister) SetDefaultConfig() {
 
 // 初始化日志
 func (gr *Gregister) initLogger() *logs.Dispatcher {
-	logger := logs.NewDispatcher()
+	logger := logs.NewDispatcher(gr.cfg.LogLevel)
 	targets := strings.Split(gr.cfg.LogTargetType, ",")
 	for _, t := range targets {
 		if t == logs.TARGET_FILE {
-			conf := fmt.Sprintf(`{"filename":"%s","level":%d,"max_size":%d,"rotate":%v}`, gr.cfg.LogFilename, gr.cfg.LogLevel, gr.cfg.LogMaxSize, gr.cfg.LogRotate)
+			conf := fmt.Sprintf(`{"filename":"%s","max_size":%d,"rotate":%v}`, gr.cfg.LogFilename, gr.cfg.LogMaxSize, gr.cfg.LogRotate)
 			logger.SetTarget(logs.TARGET_FILE, conf)
 		} else if t == logs.TARGET_CONSOLE {
 			logger.SetTarget(logs.TARGET_CONSOLE, "")
