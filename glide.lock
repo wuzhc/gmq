@@ -1,0 +1,10 @@
+hash: 0cc885f9a483604c8c64dbd79aacdc01062be098d863856c6df81a5be4a6482c
+updated: 2019-10-28T22:44:28.065997137+08:00
+imports:
+- name: github.com/wuzhc/bbolt
+  version: a0458a2b35708eef59eb5f620ceb3cd1c01a824d
+- name: golang.org/x/sys/unix
+  version: f8518d3b3627146e88bd43ca73045e1b8d8eb6c6
+- name: gopkg.in/ini.v1
+  version: 1eb383f13cde0e7be091181a93b58574638129f0
+testImports: []

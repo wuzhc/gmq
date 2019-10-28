@@ -1,0 +1,7 @@
+package: github.com/wuzhc/gmq
+import:
+- package: github.com/wuzhc/bbolt
+  version: ^1.3.3
+- package: gopkg.in/ini.v1
+  version: ^1.49.0
+  
