@@ -34,20 +34,13 @@ func (h *HttpApi) Pop(c *HttpServContext) {
 	}
 
 	t := h.ctx.Dispatcher.GetTopic(topic)
-	msg, fid, offset, err := t.pop()
+	msg, err := t.pop()
 	defer func() {
 		msg = nil
 	}()
 	if err != nil {
 		c.JsonErr(err)
 		return
-	}
-
-	// if topic.isAutoAck is false, add to waiting queue
-	if !t.isAutoAck {
-		t.waitAckMux.Lock()
-		t.waitAckMap[msg.Id] = []int{fid, offset}
-		t.waitAckMux.Unlock()
 	}
 
 	data := RespMsgData{

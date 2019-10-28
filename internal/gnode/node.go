@@ -76,7 +76,6 @@ func (gn *Gnode) Exit() {
 	if err := gn.unregister(); err != nil {
 		log.Fatalln("unregister failed")
 	}
-
 	close(gn.exitChan)
 }
 

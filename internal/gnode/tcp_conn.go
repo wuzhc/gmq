@@ -217,7 +217,7 @@ func (c *TcpConn) POP(params [][]byte) error {
 	}
 
 	topic := string(params[0])
-	msg, fid, offset, err := c.serv.ctx.Dispatcher.pop(topic)
+	msg, err := c.serv.ctx.Dispatcher.pop(topic)
 	defer func() {
 		msg = nil
 	}()
@@ -225,14 +225,6 @@ func (c *TcpConn) POP(params [][]byte) error {
 	if err != nil {
 		c.RespErr(err)
 		return nil
-	}
-
-	// if topic.isAutoAck is false, add to waiting queue
-	t := c.serv.ctx.Dispatcher.GetTopic(topic)
-	if !t.isAutoAck {
-		t.waitAckMux.Lock()
-		t.waitAckMap[msg.Id] = []int{fid, offset}
-		t.waitAckMux.Unlock()
 	}
 
 	c.RespMsg(msg)

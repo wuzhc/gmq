@@ -41,6 +41,15 @@ type Msg struct {
 	Body   []byte
 }
 
+type MsgIndex struct {
+	Fid    int
+	Offset int
+}
+
+func NewMsgIndex(fid, offset int) *MsgIndex {
+	return &MsgIndex{fid, offset}
+}
+
 // 消息编码
 // expire(8-bytes) + id(8-bytes) + retry(2-bytes) + body(n-bytes)
 func Encode(m *Msg) []byte {

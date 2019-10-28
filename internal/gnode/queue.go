@@ -180,6 +180,7 @@ func (s *scanner) unmap(queueName string) error {
 
 // 队列扫描未确认消息
 func (q *queue) scan() ([]byte, error) {
+	q.Lock()
 	q.LogDebug(fmt.Sprintf("scan.offset:%v read.offset:%v write.offset:%v", q.s.offset, q.r.offset, q.w.offset))
 
 	if !q.s.flag {
@@ -187,8 +188,10 @@ func (q *queue) scan() ([]byte, error) {
 		if err := q.s.mmap(q.name); err != nil {
 			q.s.fid--
 			if os.IsNotExist(err) {
+				q.Unlock()
 				return nil, errors.New("write has not started.")
 			} else {
+				q.Unlock()
 				return nil, err
 			}
 		}
@@ -197,6 +200,7 @@ func (q *queue) scan() ([]byte, error) {
 	soffset := q.s.offset
 	roffset, ok := q.r.rmap[q.s.fid]
 	if !ok {
+		q.Unlock()
 		return nil, errors.New("read has not started.")
 	}
 
@@ -206,12 +210,15 @@ func (q *queue) scan() ([]byte, error) {
 	if soffset == roffset {
 		if _, ok := q.r.rmap[q.s.fid+1]; ok {
 			if err := q.s.unmap(q.name); err != nil {
+				q.Unlock()
 				return nil, err
 			} else {
 				delete(q.r.rmap, q.s.fid)
+				q.Unlock()
 				return q.scan()
 			}
 		} else {
+			q.Unlock()
 			return nil, errors.New("no message")
 		}
 	}
@@ -219,6 +226,7 @@ func (q *queue) scan() ([]byte, error) {
 	// 读一条消息
 	// 消息结构 flag(1-byte) + status(2-bytes) + msg_len(4-bytes) + msg(n-bytes)
 	if flag := q.s.data[soffset]; flag != 'v' {
+		q.Unlock()
 		return nil, errors.New("unkown msg flag")
 	}
 
@@ -228,6 +236,7 @@ func (q *queue) scan() ([]byte, error) {
 	// 当前的消息已被确认了,需要跳过到下一条消息
 	if status == MSG_STATUS_FIN {
 		q.s.offset += 1 + 2 + 4 + msgLen
+		q.Unlock()
 		return q.scan() // 递归调用,注意死锁问题
 	}
 
@@ -235,6 +244,7 @@ func (q *queue) scan() ([]byte, error) {
 	expireTime := binary.BigEndian.Uint64(q.s.data[soffset+7 : soffset+15])
 	q.LogDebug(fmt.Sprintf("msg.expire:%v now:%v", expireTime, time.Now().Unix()))
 	if expireTime > uint64(time.Now().Unix()) {
+		q.Unlock()
 		return nil, errors.New("no message expire.")
 	}
 
@@ -248,6 +258,7 @@ func (q *queue) scan() ([]byte, error) {
 	if q.s.offset == roffset {
 		if _, ok := q.r.rmap[q.r.fid+1]; ok {
 			if err := q.s.unmap(q.name); err != nil {
+				q.Unlock()
 				return nil, err
 			} else {
 				delete(q.r.rmap, q.s.fid)
@@ -255,6 +266,7 @@ func (q *queue) scan() ([]byte, error) {
 		}
 	}
 
+	q.Unlock()
 	return msg, nil
 }
 
@@ -320,7 +332,7 @@ func (r *reader) unmap() error {
 }
 
 // 队列读取消息
-func (q *queue) read(isAutoAck bool) ([]byte, int, int, error) {
+func (q *queue) read(isAutoAck bool) ([]byte, *MsgIndex, error) {
 	q.Lock()
 	defer q.Unlock()
 
@@ -329,9 +341,9 @@ func (q *queue) read(isAutoAck bool) ([]byte, int, int, error) {
 		if err := q.r.mmap(q.name); err != nil {
 			q.r.fid--
 			if os.IsNotExist(err) {
-				return nil, 0, 0, errors.New("no message")
+				return nil, nil, errors.New("no message")
 			} else {
-				return nil, 0, 0, err
+				return nil, nil, err
 			}
 		}
 	}
@@ -340,7 +352,7 @@ func (q *queue) read(isAutoAck bool) ([]byte, int, int, error) {
 	roffset := q.r.offset
 	woffset, ok := q.w.wmap[q.r.fid]
 	if !ok {
-		return nil, 0, 0, errors.New("no write offset")
+		return nil, nil, errors.New("no write offset")
 	}
 
 	if roffset == woffset {
@@ -349,20 +361,20 @@ func (q *queue) read(isAutoAck bool) ([]byte, int, int, error) {
 		// 当已存在下一个写文件,说明woffset已经是文件的末尾
 		if woffset == FILE_SIZE || ok {
 			if err := q.r.unmap(); err != nil {
-				return nil, 0, 0, err
+				return nil, nil, err
 			} else {
 				delete(q.w.wmap, q.r.fid)
 				return q.read(isAutoAck)
 			}
 		} else {
-			return nil, 0, 0, errors.New("no message")
+			return nil, nil, errors.New("no message")
 		}
 	}
 
 	// 读一条消息
 	// 消息结构 flag(1-byte) + status(2-bytes) + msg_len(4-bytes) + msg(n-bytes)
 	if flag := q.r.data[roffset]; flag != 'v' {
-		return nil, 0, 0, errors.New("unkown msg flag")
+		return nil, nil, errors.New("unkown msg flag")
 	}
 
 	// 如果所属的topic是自动确认,则status设置为MSG_STATUS_FIN
@@ -388,14 +400,14 @@ func (q *queue) read(isAutoAck bool) ([]byte, int, int, error) {
 		// 当已存在下一个写文件,说明woffset已经是文件的末尾
 		if woffset == FILE_SIZE || ok {
 			if err := q.r.unmap(); err != nil {
-				return nil, 0, 0, err
+				return nil, nil, err
 			} else {
 				delete(q.w.wmap, q.r.fid)
 			}
 		}
 	}
 
-	return msg, fid, roffset, nil
+	return msg, NewMsgIndex(fid, roffset), nil
 }
 
 // 新写入信息的长度不能超过文件大小,超过则新建文件

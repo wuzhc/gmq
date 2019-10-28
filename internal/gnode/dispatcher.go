@@ -266,7 +266,7 @@ func (d *Dispatcher) mpush(name string, msgs [][]byte, delays []int) ([]uint64, 
 }
 
 // 消息消费
-func (d *Dispatcher) pop(name string) (*Msg, int, int, error) {
+func (d *Dispatcher) pop(name string) (*Msg, error) {
 	topic := d.GetTopic(name)
 	return topic.pop()
 }

@@ -32,7 +32,7 @@ type Topic struct {
 	isAutoAck  bool
 	dispatcher *Dispatcher
 	exitChan   chan struct{}
-	waitAckMap map[uint64][]int
+	waitAckMap map[uint64]*MsgIndex
 	waitAckMux sync.Mutex
 	sync.Mutex
 }
@@ -59,7 +59,7 @@ func NewTopic(name string, ctx *Context) *Topic {
 		isAutoAck:  false,
 		exitChan:   make(chan struct{}),
 		queue:      NewQueue(name, ctx),
-		waitAckMap: make(map[uint64][]int),
+		waitAckMap: make(map[uint64]*MsgIndex),
 		dispatcher: ctx.Dispatcher,
 		startTime:  time.Now(),
 	}
@@ -436,21 +436,28 @@ func (t *Topic) retrievalQueueExipreMsg() error {
 }
 
 // 消息消费
-func (t *Topic) pop() (*Msg, int, int, error) {
-	data, fid, offset, err := t.queue.read(t.isAutoAck)
+func (t *Topic) pop() (*Msg, error) {
+	data, index, err := t.queue.read(t.isAutoAck)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, err
 	}
 
 	msg := Decode(data)
-	if msg.Id > 0 {
-		atomic.AddInt64(&t.popNum, 1)
-		return msg, fid, offset, nil
-	} else {
+	if msg.Id == 0 {
 		msg = nil
+		return nil, errors.New("message decode failed.")
 	}
 
-	return nil, 0, 0, errors.New("message decode failed.")
+	// if topic.isAutoAck is false, add to waiting queue
+	if !t.isAutoAck {
+		t.waitAckMux.Lock()
+		t.waitAckMap[msg.Id] = index
+		t.waitAckMux.Unlock()
+
+	}
+
+	atomic.AddInt64(&t.popNum, 1)
+	return msg, nil
 }
 
 // 私信队列
@@ -486,14 +493,15 @@ func (t *Topic) dead(num int) (msgs []*Msg, err error) {
 
 // 消息确认
 func (t *Topic) ack(msgId uint64) error {
-	info, ok := t.waitAckMap[msgId]
+	index, ok := t.waitAckMap[msgId]
 	if !ok {
 		return errors.New(fmt.Sprintf("msgId:%v is not exist", msgId))
 	}
 
-	if err := t.queue.ack(info[0], info[1]); err != nil {
+	if err := t.queue.ack(index.Fid, index.Offset); err != nil {
 		return err
 	} else {
+		index = nil
 		delete(t.waitAckMap, msgId)
 	}
 
