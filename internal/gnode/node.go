@@ -101,6 +101,8 @@ func (gn *Gnode) SetConfig(cfgFile string) {
 	nodeWeight, _ := c.Section("node").Key("weight").Int()
 	msgTTR, _ := c.Section("node").Key("msgTTR").Int()
 	msgMaxRetry, _ := c.Section("node").Key("msgMaxRetry").Int()
+	reportTcpAddr := c.Section("node").Key("reportTcpaddr").String()
+	reportHttpAddr := c.Section("node").Key("reportHttpaddr").String()
 
 	// log config
 	cfg.LogFilename = c.Section("log").Key("filename").String()
@@ -126,7 +128,9 @@ func (gn *Gnode) SetConfig(cfgFile string) {
 
 	// parse flag
 	flag.StringVar(&cfg.TcpServAddr, "tcp_addr", tcpServAddr, "tcp address")
-	flag.StringVar(&cfg.HttpServAddr, "http_addr", httpServAddr, "http address")
+	flag.StringVar(&cfg.ReportHttpAddr, "report_http_addr", reportHttpAddr, "report http address")
+	flag.StringVar(&cfg.TcpServAddr, "tcp_addr", tcpServAddr, "tcp address")
+	flag.StringVar(&cfg.ReportTcpAddr, "report_tcp_addr", reportTcpAddr, "report tcp address")
 	flag.StringVar(&cfg.GregisterAddr, "register_addr", registerAddr, "register address")
 	flag.IntVar(&cfg.NodeId, "node_id", nodeId, "node unique id")
 	flag.IntVar(&cfg.NodeWeight, "node_weight", nodeWeight, "node weight")
@@ -145,6 +149,8 @@ func (gn *Gnode) SetDefaultConfig() {
 	flag.StringVar(&cfg.TcpServAddr, "tcp_addr", "", "tcp address")
 	flag.StringVar(&cfg.GregisterAddr, "register_addr", "", "register address")
 	flag.StringVar(&cfg.HttpServAddr, "http_addr", "", "http address")
+	flag.StringVar(&cfg.ReportTcpAddr, "report_tcp_addr", "", "report tcp address")
+	flag.StringVar(&cfg.ReportHttpAddr, "report_http_addr", "", "report http address")
 	flag.IntVar(&cfg.NodeId, "node_id", 1, "node unique id")
 	flag.IntVar(&cfg.NodeWeight, "node_weight", 1, "node weight")
 	flag.IntVar(&cfg.MsgTTR, "msg_ttr", 60, "msg ttr")
@@ -192,7 +198,7 @@ type rs struct {
 func (gn *Gnode) register() error {
 	hosts := strings.Split(gn.cfg.GregisterAddr, ",")
 	for _, host := range hosts {
-		url := fmt.Sprintf("%s/register?tcp_addr=%s&http_addr=%s&weight=%d&node_id=%d", host, gn.cfg.TcpServAddr, gn.cfg.HttpServAddr, gn.cfg.NodeWeight, gn.cfg.NodeId)
+		url := fmt.Sprintf("%s/register?tcp_addr=%s&http_addr=%s&weight=%d&node_id=%d", host, gn.cfg.ReportTcpAddr, gn.cfg.ReportHttpAddr, gn.cfg.NodeWeight, gn.cfg.NodeId)
 		resp, err := http.Get(url)
 		if err != nil {
 			return err

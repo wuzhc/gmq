@@ -26,6 +26,10 @@ type GnodeConfig struct {
 	TcpServCertFile  string
 	TcpServKeyFile   string
 
+	// report addr
+	ReportHttpAddr string
+	ReportTcpAddr  string
+
 	// log
 	LogTargetType string
 	LogFilename   string
@@ -82,5 +86,12 @@ func (c *GnodeConfig) SetDefault() {
 	// gresiger default config
 	if len(c.GregisterAddr) == 0 {
 		c.GregisterAddr = "http://127.0.0.1:9595"
+	}
+
+	if len(c.ReportHttpAddr) {
+		c.ReportHttpAddr = c.HttpServAddr
+	}
+	if len(c.ReportTcpAddr) {
+		c.ReportTcpAddr = c.TcpServAddr
 	}
 }
