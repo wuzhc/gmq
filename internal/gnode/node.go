@@ -127,7 +127,7 @@ func (gn *Gnode) SetConfig(cfgFile string) {
 	registerAddr := c.Section("gregister").Key("addr").String()
 
 	// parse flag
-	flag.StringVar(&cfg.httpServAddr, "http_addr", httpServAddr, "http address")
+	flag.StringVar(&cfg.HttpServAddr, "http_addr", httpServAddr, "http address")
 	flag.StringVar(&cfg.ReportHttpAddr, "report_http_addr", reportHttpAddr, "report http address")
 	flag.StringVar(&cfg.TcpServAddr, "tcp_addr", tcpServAddr, "tcp address")
 	flag.StringVar(&cfg.ReportTcpAddr, "report_tcp_addr", reportTcpAddr, "report tcp address")
