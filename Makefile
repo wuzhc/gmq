@@ -37,5 +37,4 @@ glide:
 	@hash glide 2>/dev/null || { \
 		echo "安装依赖工具glide" && \
 		curl https://glide.sh/get | sh; \
-		glide mirror set https://golang.org/x/sys https://github.com/golang/sys --vcs git
 	}
