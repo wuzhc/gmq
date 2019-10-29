@@ -88,10 +88,10 @@ func (c *GnodeConfig) SetDefault() {
 		c.GregisterAddr = "http://127.0.0.1:9595"
 	}
 
-	if len(c.ReportHttpAddr) {
+	if len(c.ReportHttpAddr) == 0 {
 		c.ReportHttpAddr = c.HttpServAddr
 	}
-	if len(c.ReportTcpAddr) {
+	if len(c.ReportTcpAddr) == 0 {
 		c.ReportTcpAddr = c.TcpServAddr
 	}
 }
