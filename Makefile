@@ -22,7 +22,7 @@ build/gregister:
 
 .PHONY: vendor
 vendor: glide.lock glide.yaml
-	glide install
+	glide install -v
 
 .PHONY: clean
 clean:

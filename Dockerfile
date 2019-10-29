@@ -13,5 +13,8 @@ RUN cd /data/linux-amd64 \
 WORKDIR $GOPATH/src/github.com/wuzhc
 RUN cd gmq \ 
 	&& git checkout gmq-dev-v3  \ 
+	&& git pull origin gmq-dev-v3 \
+	&& glide mirror set https://golang.org/x/sys/unix https://github.com/golang/sys \
+	&& echo "192.30.253.112 githbu.com" >> /etc/hosts \
 	&& make vendor \ 
 	&& make install
