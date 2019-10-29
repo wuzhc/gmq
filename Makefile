@@ -32,9 +32,9 @@ install: $(APPS)
 	install build/gnode ${GOPATH}/bin/gnode${EXT}
 	install build/gregister ${GOPATH}/bin/gregister${EXT}
 
-.PHONY: glide
-glide: 
-	@hash glide 2>/dev/null || { \
-		echo "安装依赖工具glide" && \
-		curl https://glide.sh/get | sh; \
-	}
+#.PHONY: glide
+# glide: 
+#	@hash glide 2>/dev/null || { \
+#		echo "安装依赖工具glide" && \
+#		curl https://glide.sh/get | sh; \
+#	}
