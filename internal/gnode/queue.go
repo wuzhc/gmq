@@ -106,7 +106,7 @@ func (q *queue) setByMetaData(readFid, readOffset, writeFid, writeOffset int, wm
 }
 
 func (w *writer) mmap(queueName string) error {
-	fname := fmt.Sprintf("%s_%d.queue", queueName, w.fid)
+	fname := fmt.Sprintf("%s/%s_%d.queue", DATA_DIR, queueName, w.fid)
 
 	f, err := os.OpenFile(fname, os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
@@ -147,7 +147,7 @@ func (w *writer) unmap() error {
 }
 
 func (s *scanner) mmap(queueName string) error {
-	fname := fmt.Sprintf("%s_%d.queue", queueName, s.fid)
+	fname := fmt.Sprintf("%s/%s_%d.queue", DATA_DIR, queueName, s.fid)
 
 	f, err := os.OpenFile(fname, os.O_RDWR, 0600)
 	if err != nil {
@@ -166,7 +166,7 @@ func (s *scanner) mmap(queueName string) error {
 }
 
 func (s *scanner) unmap(queueName string) error {
-	fname := fmt.Sprintf("%s_%d.queue", queueName, s.fid)
+	fname := fmt.Sprintf("%s/%s_%d.queue", DATA_DIR, queueName, s.fid)
 	if err := syscall.Munmap(s.data); nil != err {
 		return err
 	}
@@ -285,7 +285,7 @@ func (q *queue) ack(fid, offset int) error {
 		return nil
 	}
 
-	fname := fmt.Sprintf("%s_%d.queue", q.name, fid)
+	fname := fmt.Sprintf("%s/%s_%d.queue", DATA_DIR, q.name, fid)
 	f, err := os.OpenFile(fname, os.O_RDONLY, 0600)
 	if err != nil {
 		return err
@@ -303,7 +303,7 @@ func (q *queue) ack(fid, offset int) error {
 }
 
 func (r *reader) mmap(queueName string) error {
-	fname := fmt.Sprintf("%s_%d.queue", queueName, r.fid)
+	fname := fmt.Sprintf("%s/%s_%d.queue", DATA_DIR, queueName, r.fid)
 
 	f, err := os.OpenFile(fname, os.O_RDWR, 0600)
 	if err != nil {

@@ -21,6 +21,8 @@ import (
 	"gopkg.in/ini.v1"
 )
 
+const DATA_DIR = "data"
+
 type Gnode struct {
 	version  string
 	running  int32
@@ -32,7 +34,7 @@ type Gnode struct {
 
 func New() *Gnode {
 	return &Gnode{
-		version:  "3.0",
+		version:  "1.1",
 		ctx:      context.Background(),
 		exitChan: make(chan struct{}),
 	}
@@ -49,6 +51,16 @@ func (gn *Gnode) Run() {
 		log.Fatalln("gnode start failed.")
 	}
 
+	isExist, err := utils.PathExists(DATA_DIR)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	if !isExist {
+		if err := os.MkdirAll(DATA_DIR, os.ModePerm); err != nil {
+			log.Fatalln(err)
+		}
+	}
+
 	if gn.cfg == nil {
 		gn.SetDefaultConfig()
 	}
@@ -63,12 +75,12 @@ func (gn *Gnode) Run() {
 	gn.wg.Wrap(NewHttpServ(ctx).Run)
 	gn.wg.Wrap(NewTcpServ(ctx).Run)
 
-	if err := gn.register(); err != nil {
-		log.Fatalln("register failed, ", err)
-	}
-
 	gn.installSignalHandler()
 	ctx.Logger.Info("gnode is running.")
+
+	if err := gn.register(); err != nil {
+		log.Println("register failed, ", err)
+	}
 }
 
 // 退出应用
@@ -178,7 +190,7 @@ func (gn *Gnode) initLogger() *logs.Dispatcher {
 	targets := strings.Split(gn.cfg.LogTargetType, ",")
 	for _, t := range targets {
 		if t == logs.TARGET_FILE {
-			conf := fmt.Sprintf(`{"filename":"%s","max_size":%d,"rotate":%v}`, gn.cfg.LogFilename, gn.cfg.LogMaxSize, gn.cfg.LogRotate)
+			conf := fmt.Sprintf(`{"filename":"%s","max_size":%d,"rotate":%v}`, DATA_DIR+"/"+gn.cfg.LogFilename, gn.cfg.LogMaxSize, gn.cfg.LogRotate)
 			logger.SetTarget(logs.TARGET_FILE, conf)
 		} else if t == logs.TARGET_CONSOLE {
 			logger.SetTarget(logs.TARGET_CONSOLE, "")

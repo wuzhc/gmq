@@ -22,6 +22,8 @@ import (
 	"gopkg.in/ini.v1"
 )
 
+const DATA_DIR = "data"
+
 type node struct {
 	Id       int64  `json:"id"`
 	HttpAddr string `json:"http_addr"`
@@ -53,6 +55,17 @@ func (gr *Gregister) Run() {
 	if !atomic.CompareAndSwapInt32(&gr.running, 0, 1) {
 		log.Fatalln("gregister start failed")
 	}
+
+	isExist, err := utils.PathExists(DATA_DIR)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	if !isExist {
+		if err := os.MkdirAll(DATA_DIR, os.ModePerm); err != nil {
+			log.Fatalln(err)
+		}
+	}
+
 	if gr.cfg == nil {
 		gr.SetDefaultConfig()
 	}
@@ -130,7 +143,7 @@ func (gr *Gregister) initLogger() *logs.Dispatcher {
 	targets := strings.Split(gr.cfg.LogTargetType, ",")
 	for _, t := range targets {
 		if t == logs.TARGET_FILE {
-			conf := fmt.Sprintf(`{"filename":"%s","max_size":%d,"rotate":%v}`, gr.cfg.LogFilename, gr.cfg.LogMaxSize, gr.cfg.LogRotate)
+			conf := fmt.Sprintf(`{"filename":"%s","max_size":%d,"rotate":%v}`, DATA_DIR+"/"+gr.cfg.LogFilename, gr.cfg.LogMaxSize, gr.cfg.LogRotate)
 			logger.SetTarget(logs.TARGET_FILE, conf)
 		} else if t == logs.TARGET_CONSOLE {
 			logger.SetTarget(logs.TARGET_CONSOLE, "")

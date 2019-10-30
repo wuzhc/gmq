@@ -3,7 +3,5 @@
 /api
 /keys
 
-/cmd/gnode/gnode.log
-/cmd/gnode/gnode
-/cmd/gregister/gregister
-/cmd/gregister/gregister.log
+/cmd/gnode/data/
+/cmd/gregister/data/

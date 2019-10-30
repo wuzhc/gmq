@@ -35,7 +35,7 @@ func NewDispatcher(ctx *Context) *Dispatcher {
 		panic(err)
 	}
 
-	db, err := bolt.Open("gmq.db", 0600, nil)
+	db, err := bolt.Open(DATA_DIR+"/gmq.db", 0600, nil)
 	if err != nil {
 		panic(err)
 	}
