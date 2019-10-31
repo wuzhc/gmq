@@ -51,18 +51,22 @@ func (gn *Gnode) Run() {
 		log.Fatalln("gnode start failed.")
 	}
 
-	isExist, err := utils.PathExists(DATA_DIR)
+	if gn.cfg == nil {
+		gn.SetDefaultConfig()
+	}
+	if err := gn.cfg.Validate(); err != nil {
+		log.Fatalln(err)
+	}
+
+	// 创建数据(消息和日志)文件存储位置
+	isExist, err := utils.PathExists(gn.cfg.DataSavePath)
 	if err != nil {
 		log.Fatalln(err)
 	}
 	if !isExist {
-		if err := os.MkdirAll(DATA_DIR, os.ModePerm); err != nil {
+		if err := os.MkdirAll(gn.cfg.DataSavePath, os.ModePerm); err != nil {
 			log.Fatalln(err)
 		}
-	}
-
-	if gn.cfg == nil {
-		gn.SetDefaultConfig()
 	}
 
 	ctx := &Context{
@@ -115,6 +119,7 @@ func (gn *Gnode) SetConfig(cfgFile string) {
 	msgMaxRetry, _ := c.Section("node").Key("msgMaxRetry").Int()
 	reportTcpAddr := c.Section("node").Key("reportTcpaddr").String()
 	reportHttpAddr := c.Section("node").Key("reportHttpaddr").String()
+	dataSavePath := c.Section("node").Key("dataSavePath").String()
 
 	// log config
 	cfg.LogFilename = c.Section("log").Key("filename").String()
@@ -148,6 +153,7 @@ func (gn *Gnode) SetConfig(cfgFile string) {
 	flag.IntVar(&cfg.NodeWeight, "node_weight", nodeWeight, "node weight")
 	flag.IntVar(&cfg.MsgTTR, "msg_ttr", msgTTR, "msg ttr")
 	flag.IntVar(&cfg.MsgMaxRetry, "msg_max_retry", msgMaxRetry, "msg max retry")
+	flag.StringVar(&cfg.DataSavePath, "data_save_path", dataSavePath, "data save path")
 	flag.Parse()
 
 	gn.cfg = cfg
@@ -167,6 +173,7 @@ func (gn *Gnode) SetDefaultConfig() {
 	flag.IntVar(&cfg.NodeWeight, "node_weight", 1, "node weight")
 	flag.IntVar(&cfg.MsgTTR, "msg_ttr", 60, "msg ttr")
 	flag.IntVar(&cfg.MsgMaxRetry, "msg_max_retry", 5, "msg max retry")
+	flag.StringVar(&cfg.DataSavePath, "data_save_path", "", "data save path")
 	flag.Parse()
 
 	gn.cfg = cfg
@@ -190,7 +197,7 @@ func (gn *Gnode) initLogger() *logs.Dispatcher {
 	targets := strings.Split(gn.cfg.LogTargetType, ",")
 	for _, t := range targets {
 		if t == logs.TARGET_FILE {
-			conf := fmt.Sprintf(`{"filename":"%s","max_size":%d,"rotate":%v}`, DATA_DIR+"/"+gn.cfg.LogFilename, gn.cfg.LogMaxSize, gn.cfg.LogRotate)
+			conf := fmt.Sprintf(`{"filename":"%s","max_size":%d,"rotate":%v}`, gn.cfg.DataSavePath+"/"+gn.cfg.LogFilename, gn.cfg.LogMaxSize, gn.cfg.LogRotate)
 			logger.SetTarget(logs.TARGET_FILE, conf)
 		} else if t == logs.TARGET_CONSOLE {
 			logger.SetTarget(logs.TARGET_CONSOLE, "")

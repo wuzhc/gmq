@@ -87,7 +87,7 @@ func (t *Topic) init() {
 	t.LogInfo(fmt.Sprintf("loading topic.%s metadata.", t.name))
 
 	// 初始化队列读写偏移量
-	fd, err := os.OpenFile(fmt.Sprintf("%s/%s.meta", DATA_DIR, t.name), os.O_RDONLY, 0600)
+	fd, err := os.OpenFile(fmt.Sprintf("%s/%s.meta", t.ctx.Conf.DataSavePath, t.name), os.O_RDONLY, 0600)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			t.LogError(fmt.Sprintf("load %s.meta failed, %v", t.name, err))
@@ -149,7 +149,7 @@ func (t *Topic) exit() {
 	t.wg.Wait()
 
 	t.LogInfo(fmt.Sprintf("writing topic.%s metadata.", t.name))
-	fd, err := os.OpenFile(fmt.Sprintf("%s/%s.meta", DATA_DIR, t.name), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	fd, err := os.OpenFile(fmt.Sprintf("%s/%s.meta", t.ctx.Conf.DataSavePath, t.name), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		t.LogError(fmt.Sprintf("write %s.meta failed, %v", t.name, err))
 	}

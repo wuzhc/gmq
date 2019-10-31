@@ -40,6 +40,8 @@ import (
 // const FILE_SIZE = 209715200
 const FILE_SIZE = 209715200
 
+var queueSavePath string
+
 type queue struct {
 	w    *writer
 	r    *reader
@@ -74,6 +76,7 @@ type scanner struct {
 }
 
 func NewQueue(name string, ctx *Context) *queue {
+	queueSavePath = ctx.Conf.DataSavePath
 	return &queue{
 		name: name,
 		ctx:  ctx,
@@ -106,7 +109,7 @@ func (q *queue) setByMetaData(readFid, readOffset, writeFid, writeOffset int, wm
 }
 
 func (w *writer) mmap(queueName string) error {
-	fname := fmt.Sprintf("%s/%s_%d.queue", DATA_DIR, queueName, w.fid)
+	fname := fmt.Sprintf("%s/%s_%d.queue", queueSavePath, queueName, w.fid)
 
 	f, err := os.OpenFile(fname, os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
@@ -147,7 +150,7 @@ func (w *writer) unmap() error {
 }
 
 func (s *scanner) mmap(queueName string) error {
-	fname := fmt.Sprintf("%s/%s_%d.queue", DATA_DIR, queueName, s.fid)
+	fname := fmt.Sprintf("%s/%s_%d.queue", queueSavePath, queueName, s.fid)
 
 	f, err := os.OpenFile(fname, os.O_RDWR, 0600)
 	if err != nil {
@@ -166,7 +169,7 @@ func (s *scanner) mmap(queueName string) error {
 }
 
 func (s *scanner) unmap(queueName string) error {
-	fname := fmt.Sprintf("%s/%s_%d.queue", DATA_DIR, queueName, s.fid)
+	fname := fmt.Sprintf("%s/%s_%d.queue", queueSavePath, queueName, s.fid)
 	if err := syscall.Munmap(s.data); nil != err {
 		return err
 	}
@@ -285,7 +288,7 @@ func (q *queue) ack(fid, offset int) error {
 		return nil
 	}
 
-	fname := fmt.Sprintf("%s/%s_%d.queue", DATA_DIR, q.name, fid)
+	fname := fmt.Sprintf("%s/%s_%d.queue", queueSavePath, q.name, fid)
 	f, err := os.OpenFile(fname, os.O_RDONLY, 0600)
 	if err != nil {
 		return err
@@ -303,7 +306,7 @@ func (q *queue) ack(fid, offset int) error {
 }
 
 func (r *reader) mmap(queueName string) error {
-	fname := fmt.Sprintf("%s/%s_%d.queue", DATA_DIR, queueName, r.fid)
+	fname := fmt.Sprintf("%s/%s_%d.queue", queueSavePath, queueName, r.fid)
 
 	f, err := os.OpenFile(fname, os.O_RDWR, 0600)
 	if err != nil {

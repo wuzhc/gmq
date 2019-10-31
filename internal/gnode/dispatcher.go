@@ -35,7 +35,8 @@ func NewDispatcher(ctx *Context) *Dispatcher {
 		panic(err)
 	}
 
-	db, err := bolt.Open(DATA_DIR+"/gmq.db", 0600, nil)
+	dbFile := fmt.Sprintf("%s/gmq.db", ctx.Conf.DataSavePath)
+	db, err := bolt.Open(dbFile, 0600, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -54,7 +55,6 @@ func NewDispatcher(ctx *Context) *Dispatcher {
 
 func (d *Dispatcher) Run() {
 	defer d.LogInfo("dispatcher exit.")
-
 	d.wg.Wrap(d.scanLoop)
 
 	select {

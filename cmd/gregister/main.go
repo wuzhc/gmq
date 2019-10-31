@@ -1,14 +1,19 @@
-// gnode注册器
-// 功能:
-// 	- 负责gnode注册和注销
 package main
 
 import (
+	"flag"
+
 	"github.com/wuzhc/gmq/internal/gregister"
 )
 
 func main() {
 	gr := gregister.New()
-	// gr.SetConfig("./conf.ini")
+
+	cfgFile := flag.String("config_file", "", "config file")
+	flag.Parse()
+	if len(*cfgFile) > 0 {
+		gr.SetConfig(*cfgFile)
+	}
+
 	gr.Run()
 }

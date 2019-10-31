@@ -1,42 +1,65 @@
-> gmq是一个轻量级的消息中间件,它具备了消息可靠性,稳定性,扩展性,高效性等特点
-> https://www.jianshu.com/p/4b7865dbb19a
+> gmq是一个轻量级的消息中间件,简单高效是它的特点
 
-## 消息中间件的作用
-- 解耦
-- 异步
-- 削峰
-
-## 功能和特性
-- 支持多节点部署
-- 支持延迟消息
-- 支持消息确认删除机制
-- 支持安全传输tls
-- 支持消息持久化
-- 提供api接口
-- 提供根据消息ID追踪消息功能
-- 提供web页面管理
-
-## 未来
-- 支持发布订阅功能
-- 支持自定义失败次数和死信队列
-- 优化单个延迟消息推送速度
-
-## 注意
-- 分布式情况下不保证有序性,需要单机情况下且限制一个goroutine来消费消息,消息才能保证有序性
-
-## 部署
-## 源码运行
+## 安装运行
 ```bash
-git clone https://github.com/wuzhc/gmq.git
-cd $GOPATH/src/gmq
-go get -u -v github.com/kardianos/govendor # 如果有就不需要安装了
-govendor sync
+git clone https://github.com/wuzhc/gmq.git $GOPATH/src/github.com/wuzhc/gmq
+cd $GOPATH/src/github.com/wuzhc/gmq
+make
 
-cd $GOPATH/src/gmq/cmd/register
-go run main.go # 需要先启动注册中心
+# 启动注册中心服务,直接指定配置文件
+gregister -config_file="conf.ini"
+# 或者通过命令行参数指定配置
+gregister -http_addr="127.0.0.1:9595"
+# 启动节点服务,直接指定配置文件
+gnode -config_file="conf.ini"
+# 或者通过命令行参数指定配置
+gnode -http_addr="127.0.0.1:9504" -tcp_addr="127.0.0.1:9503" -register_addr="http://127.0.0.1:9595" -node_id=1 -node_weight=1 
+```
+### 配置文件`conf.ini`,参考
+- gnode配置文件 https://github.com/wuzhc/gmq/blob/gmq-dev-v3/cmd/gnode/conf.ini
+- gregister配置文件 https://github.com/wuzhc/gmq/blob/gmq-dev-v3/cmd/gregister/conf.ini
 
-cd $GOPATH/src/gmq/cmd/gnode
-go run main.go # 启动节点,启动成功后,节点会向注册中心注册自己
+### 命令行选项参数说明:  
+- -http_addr 节点http地址(ip:port)
+- -tcp_addr 节点tcp地址(ip:port)
+- -register_addr 注册中心http地址(http://ip:port)
+- -node_id 节点ID,唯一值,范围为1到1024
+- -node_weight 节点权重,用于多节点场景
+### 注意:  
+- 先启动注册中心`gregister`,再启动节点`gnode`,因为每个节点启动时候需要把节点基本信息上报给注册中心
+
+## 测试
+启动注册中心和节点之后,便可以开始消息推送和消费了,打开终端,执行如下命令
+```bash
+# 推送消息
+curl -d 'data={"body":"this is a job","topic":"game_1","delay":20}' 'http://127.0.0.1:9504/push'
+# 消费消息
+curl http://127.0.0.1:9504/pop?topic=xxx 
+# 确认消息
+curl http://127.0.0.1:9504/ack?msgId=xxx&topic=xxx
+```
+
+## 客户端
+gmq提供了一个golang版本的客户端和一个web管理系统,链接如下:
+- [gmq-client客户端](https://github.com/wuzhc/gmq-client-go)
+- [gmq-web管理](https://github.com/wuzhc/gmq-web)
+
+## docker运行
+除上面之后,还可以直接运行gmq的容器
+```bash
+# 启动注册中心
+docker run --name=gmq-register -p 9595:9595 --network=gmq-network  wuzhc/gmq-image:v1 gregister -http_addr=":9595"
+
+# 启动节点
+docker run --name=gmq-node -p 9503:9503 -p 9504:9504 --network=gmq-network  wuzhc/gmq-image:v1 gnode -node_id=1 -tcp_addr=gnode:9503 -http_addr=gnode:9504 -register_addr=http://gmq-register:9595
+
+# 启动web管理
+docker run --name=gmq-web -p 8080:8080 --network=gmq-network wuzhc/gmq-image:v1 gweb -web_addr=":8080" -register_addr="http://gmq-register:9595"
+
+# 启动客户端
+docker run --name=gmq-client --network=gmq-network wuzhc/gmq-image:v1 
+docker exec gmq-client gclient -node_addr="gmq-node:9503" -cmd="push" -topic="gmq-topic-1" -push_num=1000
+docker exec gmq-client gclient -node_addr="gmq-node:9503" -cmd="pop_loop" -topic="gmq-topic-1" 
 ```
 
 ## 工作原理
@@ -57,15 +80,6 @@ gmq使用了固定包头+包体的形式来解决粘包问题,一个数据包如
  2-bytes   2-bytes   n-bytes
 ```
 更多详情参考[gmq传输协议](gmq传输协议)
-
-## 客户端
-- [golang客户端](https://github.com/wuzhc/gmq-client-go)
-- [php客户端](https://github.com/wuzhc/gmq-client-php)
-- [php-swoole客户端](https://github.com/wuzhc/gmq-client-swoole)
-
-
-## 未来
-- 目前是简单的推拉模式,之后会增加订阅发布模式
 
 ## 相关文章
 - [gmq快速入门]()

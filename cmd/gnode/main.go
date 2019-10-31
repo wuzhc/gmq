@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"net/http"
 	_ "net/http/pprof"
 
@@ -13,6 +14,12 @@ func main() {
 	}()
 
 	gn := gnode.New()
-	// gn.SetConfig("./conf.ini")
+
+	cfgFile := flag.String("config_file", "", "config file")
+	flag.Parse()
+	if len(*cfgFile) > 0 {
+		gn.SetConfig(*cfgFile)
+	}
+
 	gn.Run()
 }

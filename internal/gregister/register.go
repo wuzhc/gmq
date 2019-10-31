@@ -22,8 +22,6 @@ import (
 	"gopkg.in/ini.v1"
 )
 
-const DATA_DIR = "data"
-
 type node struct {
 	Id       int64  `json:"id"`
 	HttpAddr string `json:"http_addr"`
@@ -56,18 +54,22 @@ func (gr *Gregister) Run() {
 		log.Fatalln("gregister start failed")
 	}
 
-	isExist, err := utils.PathExists(DATA_DIR)
+	if gr.cfg == nil {
+		gr.SetDefaultConfig()
+	}
+	if err := gr.cfg.Validate(); err != nil {
+		log.Fatalln(err)
+	}
+
+	// 创建数据(消息和日志)文件存储位置
+	isExist, err := utils.PathExists(gr.cfg.DataSavePath)
 	if err != nil {
 		log.Fatalln(err)
 	}
 	if !isExist {
-		if err := os.MkdirAll(DATA_DIR, os.ModePerm); err != nil {
+		if err := os.MkdirAll(gr.cfg.DataSavePath, os.ModePerm); err != nil {
 			log.Fatalln(err)
 		}
-	}
-
-	if gr.cfg == nil {
-		gr.SetDefaultConfig()
 	}
 
 	ctx := &Context{
@@ -105,6 +107,9 @@ func (gr *Gregister) SetConfig(cfgFile string) {
 
 	cfg := new(configs.GregisterConfig)
 
+	// register config
+	dataSavePath := c.Section("register").Key("dataSavePath").String()
+
 	// log config
 	cfg.LogFilename = c.Section("log").Key("filename").String()
 	cfg.LogLevel, _ = c.Section("log").Key("level").Int()
@@ -120,6 +125,7 @@ func (gr *Gregister) SetConfig(cfgFile string) {
 
 	// parse flag
 	flag.StringVar(&cfg.HttpServAddr, "http_addr", httpServAddr, "http address")
+	flag.StringVar(&cfg.DataSavePath, "data_save_path", dataSavePath, "data save path")
 	flag.Parse()
 
 	cfg.SetDefault()
@@ -131,6 +137,7 @@ func (gr *Gregister) SetDefaultConfig() {
 	cfg := new(configs.GregisterConfig)
 
 	flag.StringVar(&cfg.HttpServAddr, "http_addr", "", "http address")
+	flag.StringVar(&cfg.DataSavePath, "data_save_path", "", "data save path")
 	flag.Parse()
 
 	gr.cfg = cfg
@@ -143,7 +150,7 @@ func (gr *Gregister) initLogger() *logs.Dispatcher {
 	targets := strings.Split(gr.cfg.LogTargetType, ",")
 	for _, t := range targets {
 		if t == logs.TARGET_FILE {
-			conf := fmt.Sprintf(`{"filename":"%s","max_size":%d,"rotate":%v}`, DATA_DIR+"/"+gr.cfg.LogFilename, gr.cfg.LogMaxSize, gr.cfg.LogRotate)
+			conf := fmt.Sprintf(`{"filename":"%s","max_size":%d,"rotate":%v}`, gr.cfg.DataSavePath+"/"+gr.cfg.LogFilename, gr.cfg.LogMaxSize, gr.cfg.LogRotate)
 			logger.SetTarget(logs.TARGET_FILE, conf)
 		} else if t == logs.TARGET_CONSOLE {
 			logger.SetTarget(logs.TARGET_CONSOLE, "")

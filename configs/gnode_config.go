@@ -1,15 +1,16 @@
 package configs
 
 import (
-	"log"
+	"errors"
 )
 
 type GnodeConfig struct {
 	// node
-	NodeId      int
-	NodeWeight  int
-	MsgTTR      int
-	MsgMaxRetry int
+	NodeId       int
+	NodeWeight   int
+	MsgTTR       int
+	MsgMaxRetry  int
+	DataSavePath string
 
 	// gresiter
 	GregisterAddr string
@@ -38,13 +39,17 @@ type GnodeConfig struct {
 	LogRotate     bool
 }
 
-func (c *GnodeConfig) Validate() {
+func (c *GnodeConfig) Validate() error {
 	if c.MsgTTR > 300 {
-		log.Fatalln("msgTTR can't greater than 300.")
+		return errors.New("msgTTR can't greater than 300.")
 	}
 	if c.NodeId > 1024 || c.NodeId < 0 {
-		log.Fatalln("nodeId must be between 1 and 1024.")
+		return errors.New("nodeId must be between 1 and 1024.")
 	}
+	if c.LogLevel > 4 || c.LogLevel < 0 {
+		return errors.New("log.level must be between 1 and 5.")
+	}
+	return nil
 }
 
 func (c *GnodeConfig) SetDefault() {
@@ -60,13 +65,17 @@ func (c *GnodeConfig) SetDefault() {
 	if c.MsgMaxRetry == 0 {
 		c.MsgMaxRetry = 5
 	}
+	// 数据存储目录,相对于命令执行所在目录,例如在/home执行启动命令,将会生成/home/data目录
+	if len(c.DataSavePath) == 0 {
+		c.DataSavePath = "data"
+	}
 
 	// log default config
 	if len(c.LogFilename) == 0 {
 		c.LogFilename = "gnode.log"
 	}
 	if c.LogLevel <= 0 {
-		c.LogLevel = 5
+		c.LogLevel = 2
 	}
 	if c.LogMaxSize <= 5000000 {
 		c.LogMaxSize = 5000000
