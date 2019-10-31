@@ -1,4 +1,8 @@
-> gmq是一个轻量级的消息中间件,简单高效是它的特点
+> gmq是一个轻量级的消息中间件;第一个版本的gmq是基于redis实现,因为功能和存储严重依赖于redis特性,使得之后的优化受到限制,所以在最新的版本不再使用`redis`,完全移除对redis依赖;最新版本的消息存储部分使用文件存储,并使用内存映射的技术,使得gmq更加高效和稳定;
+> 对于redis版本的,大家可以参考[gmq-redis](https://github.com/wuzhc/gmq-redis)
+
+## 架构
+gmq是一个简单的推拉模型,消息推送和消费速度由客户端自己控制
 
 ## 安装运行
 ```bash
@@ -62,32 +66,14 @@ docker exec gmq-client gclient -node_addr="gmq-node:9503" -cmd="push" -topic="gm
 docker exec gmq-client gclient -node_addr="gmq-node:9503" -cmd="pop_loop" -topic="gmq-topic-1" 
 ```
 
-## 工作原理
-![https://github.com/wuzhc/zcnote/raw/master/images/project/gmq%E6%B5%81%E7%A8%8B%E5%9B%BE.png](https://github.com/wuzhc/zcnote/raw/master/images/project/gmq%E6%B5%81%E7%A8%8B%E5%9B%BE.png)  
-
-## 传输协议
-### 请求数据包
-gmq使用了固定包头+包体的形式来解决粘包问题,一个数据包如下:
-```
-  xxxx   |    xx    |    xx    |    ...   |    ...   |
-   包头      命令长度     数据长度     命令        数据
-  4-bytes    2-bytes      2-bytes    n-bytes     n-bytes
-```
-### 响应数据包
-```
-  xx    |   xx    |   ...  |
-响应类型    数据长度    数据
- 2-bytes   2-bytes   n-bytes
-```
-更多详情参考[gmq传输协议](gmq传输协议)
-
 ## 相关文章
-- [gmq快速入门]()
-- [gmq整体设计]()
-- [gmq传输协议]()
-- [gmq注意问题]()
-- [redis连接池]()
-- [延迟消息设计]()
-- [分布式ID生成]()
-- [goroutine安全退出]()
-- [redis+lua保证原子性操作]()
+- [gmq架构设计](https://github.com/wuzhc/zcnote/blob/master/golang/gmq/gmq%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8.md)
+- [gmq通信协议](https://github.com/wuzhc/zcnote/blob/master/golang/gmq/gmq%E9%80%9A%E4%BF%A1%E5%8D%8F%E8%AE%AE.md)
+- [gmq多节点使用](https://github.com/wuzhc/zcnote/blob/master/golang/gmq/gmq%E5%A4%9A%E8%8A%82%E7%82%B9%E4%BD%BF%E7%94%A8.md)
+- [gmq消息持久化](https://github.com/wuzhc/zcnote/blob/master/golang/gmq/gmq%E6%8C%81%E4%B9%85%E5%8C%96%E5%AD%98%E5%82%A8.md) 
+- [gmq消息确认机制](https://github.com/wuzhc/zcnote/blob/master/golang/gmq/gmq%E6%B6%88%E6%81%AF%E7%A1%AE%E8%AE%A4%E6%9C%BA%E5%88%B6.md)
+- [gmq延迟消息机制](https://github.com/wuzhc/zcnote/blob/master/golang/gmq/gmq%E5%BB%B6%E8%BF%9F%E6%B6%88%E6%81%AF%E6%9C%BA%E5%88%B6.md)
+- [gmq队列处理消息过程]()
+- [gmq性能分析pprof工具](https://github.com/wuzhc/zcnote/blob/master/golang/gmq/gmq%E6%80%A7%E8%83%BD%E7%9B%91%E6%8E%A7.md)
+
+**相对于其他消息中间件,gmq足够简单,没有复杂而晦涩的概念,当然这也是gmq还没有提供更加丰富功能,gmq现在还是处于开发阶段,欢迎各位提交你们的代码~**
