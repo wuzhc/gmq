@@ -359,7 +359,7 @@ func (t *Topic) retrievalQueueExipreMsg() error {
 	for {
 		data, err := t.queue.scan()
 		if err != nil {
-			// t.LogDebug(err)
+			t.LogDebug(err)
 			break
 		}
 
@@ -384,12 +384,11 @@ func (t *Topic) retrievalQueueExipreMsg() error {
 		}
 
 		// 消息到期,重新添加到队列等待再次被消费
-		t.LogDebug(fmt.Sprintf("retrieval msg: %v", msg.Id))
 		if err := t.queue.write(Encode(msg)); err != nil {
 			t.LogError(err)
 			break
 		} else {
-			t.LogDebug(fmt.Sprintf("msg.Id %v has expire.", msg.Id))
+			t.LogDebug(fmt.Sprintf("msg.Id %v has expired and will be consumed again.", msg.Id))
 			t.waitAckMux.Lock()
 			delete(t.waitAckMap, msg.Id)
 			t.waitAckMux.Unlock()

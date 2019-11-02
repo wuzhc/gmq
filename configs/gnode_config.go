@@ -41,8 +41,8 @@ type GnodeConfig struct {
 }
 
 func (c *GnodeConfig) Validate() error {
-	if c.MsgTTR > 300 {
-		return errors.New("msgTTR can't greater than 300.")
+	if c.MsgTTR > 60 {
+		return errors.New("msgTTR can't greater than 60.")
 	}
 	if c.NodeId > 1024 || c.NodeId < 0 {
 		return errors.New("nodeId must be between 1 and 1024.")
@@ -64,7 +64,7 @@ func (c *GnodeConfig) SetDefault() {
 		c.NodeWeight = 1
 	}
 	if c.MsgTTR == 0 {
-		c.MsgTTR = 60
+		c.MsgTTR = 30
 	}
 	if c.MsgMaxRetry == 0 {
 		c.MsgMaxRetry = 5

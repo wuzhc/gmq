@@ -37,11 +37,8 @@ import (
 	"github.com/wuzhc/gmq/pkg/logs"
 )
 
-// const FILE_SIZE = 2 << 32 // 4G
-// const FILE_SIZE = 209715200
-const FILE_SIZE = 209715200
-const GROW_SIZE = 4 * 1024 * 1024
-const REWRITE_SIZE = 10 * 1024 * 1024
+const GROW_SIZE = 10 * 1024 * 1024
+const REWRITE_SIZE = 100 * 1024 * 1024
 
 var queueSavePath string
 
@@ -49,13 +46,13 @@ type queue struct {
 	woffset  int64
 	roffset  int64
 	soffset  int64
-	file     *os.File
-	data     []byte
-	name     string
-	ctx      *Context
 	filesize int64
-	topic    *Topic
 	num      int64
+	name     string
+	data     []byte
+	topic    *Topic
+	file     *os.File
+	ctx      *Context
 	sync.RWMutex
 }
 
@@ -136,7 +133,7 @@ func (q *queue) scan() ([]byte, error) {
 
 	// 消息未超时
 	expireTime := binary.BigEndian.Uint64(q.data[q.soffset+7 : q.soffset+15])
-	// q.LogDebug(fmt.Sprintf("msg.expire:%v now:%v", expireTime, time.Now().Unix()))
+	q.LogDebug(fmt.Sprintf("msg.expire:%v now:%v", expireTime, time.Now().Unix()))
 	if expireTime > uint64(time.Now().Unix()) {
 		q.Unlock()
 		return nil, errors.New("no message expire.")
