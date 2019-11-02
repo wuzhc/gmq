@@ -32,38 +32,33 @@ type Topic struct {
 	isAutoAck  bool
 	dispatcher *Dispatcher
 	exitChan   chan struct{}
-	waitAckMap map[uint64]*MsgIndex
+	waitAckMap map[uint64]int64
 	waitAckMux sync.Mutex
 	sync.Mutex
 }
 
 type TopicMeta struct {
-	PopNum      int64       `json:"pop_num"`
-	PushNum     int64       `json:"push_num"`
-	QueueNum    int64       `json:"queue_num"`
-	WriteFid    int         `json:"write_fid"`
-	ReadFid     int         `json:"read_fid"`
-	ScanFid     int         `json:"scan_fid"`
-	WriteOffset int         `json:"write_offset"`
-	ReadOffset  int         `json:"read_offset"`
-	ScanOffset  int         `json:"scan_offset"`
-	WriteFMap   map[int]int `json:"write_file_map"`
-	ReadFMap    map[int]int `json:"read_file_map"`
-	IsAutoAck   bool        `json:"is_auto_ack"`
+	PopNum      int64 `json:"pop_num"`
+	PushNum     int64 `json:"push_num"`
+	QueueNum    int64 `json:"queue_num"`
+	WriteOffset int64 `json:"write_offset"`
+	ReadOffset  int64 `json:"read_offset"`
+	ScanOffset  int64 `json:"scan_offset"`
+	IsAutoAck   bool  `json:"is_auto_ack"`
 }
 
 func NewTopic(name string, ctx *Context) *Topic {
 	t := &Topic{
 		ctx:        ctx,
 		name:       name,
-		isAutoAck:  false,
+		isAutoAck:  true,
 		exitChan:   make(chan struct{}),
-		queue:      NewQueue(name, ctx),
-		waitAckMap: make(map[uint64]*MsgIndex),
+		waitAckMap: make(map[uint64]int64),
 		dispatcher: ctx.Dispatcher,
 		startTime:  time.Now(),
 	}
 
+	t.queue = NewQueue(name, ctx, t)
 	t.init()
 	return t
 }
@@ -111,33 +106,9 @@ func (t *Topic) init() {
 	t.pushNum = meta.PushNum
 	t.isAutoAck = meta.IsAutoAck
 	t.queue.num = meta.QueueNum
-
-	// 恢复读进度
-	t.queue.r.fid = meta.ReadFid
-	t.queue.r.offset = meta.ReadOffset
-	t.queue.r.rmap = meta.ReadFMap
-	if meta.ReadFid > 0 {
-		if err := t.queue.r.mmap(t.queue.name); err != nil {
-			t.LogError(fmt.Sprintf("init %s.queue.read failed, %v", t.name, err))
-		}
-	}
-	// 恢复写进度
-	t.queue.w.fid = meta.WriteFid
-	t.queue.w.offset = meta.WriteOffset
-	t.queue.w.wmap = meta.WriteFMap
-	if meta.WriteFid > 0 {
-		if err := t.queue.w.mmap(t.queue.name); err != nil {
-			t.LogError(fmt.Sprintf("init %s.queue.write failed, %v", t.name, err))
-		}
-	}
-	// 恢复扫描进度
-	t.queue.s.fid = meta.ScanFid
-	t.queue.s.offset = meta.ScanOffset
-	if meta.ScanFid > 0 {
-		if err := t.queue.s.mmap(t.queue.name); err != nil {
-			t.LogError(fmt.Sprintf("init %s.queue.scan failed, %v", t.name, err))
-		}
-	}
+	t.queue.woffset = meta.WriteOffset
+	t.queue.roffset = meta.ReadOffset
+	t.queue.soffset = meta.ScanOffset
 }
 
 // 退出topic
@@ -159,14 +130,9 @@ func (t *Topic) exit() {
 		PopNum:      t.popNum,
 		PushNum:     t.pushNum,
 		QueueNum:    t.queue.num,
-		WriteFid:    t.queue.w.fid,
-		ReadFid:     t.queue.r.fid,
-		ScanFid:     t.queue.s.fid,
-		WriteOffset: t.queue.w.offset,
-		ReadOffset:  t.queue.r.offset,
-		ScanOffset:  t.queue.s.offset,
-		WriteFMap:   t.queue.w.wmap,
-		ReadFMap:    t.queue.r.rmap,
+		WriteOffset: t.queue.woffset,
+		ReadOffset:  t.queue.roffset,
+		ScanOffset:  t.queue.soffset,
 		IsAutoAck:   t.isAutoAck,
 	}
 	data, err := json.Marshal(meta)
@@ -393,7 +359,7 @@ func (t *Topic) retrievalQueueExipreMsg() error {
 	for {
 		data, err := t.queue.scan()
 		if err != nil {
-			t.LogDebug(err)
+			// t.LogDebug(err)
 			break
 		}
 
@@ -405,6 +371,9 @@ func (t *Topic) retrievalQueueExipreMsg() error {
 
 		msg.Retry = msg.Retry + 1 // incr retry number
 		if msg.Retry > MSG_MAX_RETRY {
+			t.waitAckMux.Lock()
+			delete(t.waitAckMap, msg.Id)
+			t.waitAckMux.Unlock()
 			t.LogTrace(fmt.Sprintf("msg.Id %v has been added to dead queue.", msg.Id))
 			if err := t.pushMsgToDeadBucket(msg); err != nil {
 				t.LogError(err)
@@ -415,6 +384,7 @@ func (t *Topic) retrievalQueueExipreMsg() error {
 		}
 
 		// 消息到期,重新添加到队列等待再次被消费
+		t.LogDebug(fmt.Sprintf("retrieval msg: %v", msg.Id))
 		if err := t.queue.write(Encode(msg)); err != nil {
 			t.LogError(err)
 			break
@@ -493,15 +463,14 @@ func (t *Topic) dead(num int) (msgs []*Msg, err error) {
 
 // 消息确认
 func (t *Topic) ack(msgId uint64) error {
-	index, ok := t.waitAckMap[msgId]
+	offset, ok := t.waitAckMap[msgId]
 	if !ok {
 		return errors.New(fmt.Sprintf("msgId:%v is not exist", msgId))
 	}
 
-	if err := t.queue.ack(index.Fid, index.Offset); err != nil {
+	if err := t.queue.ack(offset); err != nil {
 		return err
 	} else {
-		index = nil
 		delete(t.waitAckMap, msgId)
 	}
 

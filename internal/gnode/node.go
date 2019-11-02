@@ -1,7 +1,6 @@
 package gnode
 
 import (
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -27,7 +26,7 @@ type Gnode struct {
 	version  string
 	running  int32
 	exitChan chan struct{}
-	ctx      context.Context
+	ctx      *Context
 	wg       utils.WaitGroupWrapper
 	cfg      *configs.GnodeConfig
 }
@@ -35,7 +34,6 @@ type Gnode struct {
 func New() *Gnode {
 	return &Gnode{
 		version:  "1.1",
-		ctx:      context.Background(),
 		exitChan: make(chan struct{}),
 	}
 }
@@ -75,6 +73,7 @@ func (gn *Gnode) Run() {
 		Logger: gn.initLogger(),
 	}
 
+	gn.ctx = ctx
 	gn.wg.Wrap(NewDispatcher(ctx).Run)
 	gn.wg.Wrap(NewHttpServ(ctx).Run)
 	gn.wg.Wrap(NewTcpServ(ctx).Run)

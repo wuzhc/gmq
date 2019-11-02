@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -39,378 +40,267 @@ import (
 // const FILE_SIZE = 2 << 32 // 4G
 // const FILE_SIZE = 209715200
 const FILE_SIZE = 209715200
+const GROW_SIZE = 4 * 1024 * 1024
+const REWRITE_SIZE = 10 * 1024 * 1024
 
 var queueSavePath string
 
 type queue struct {
-	w    *writer
-	r    *reader
-	s    *scanner
-	name string
-	ctx  *Context
-	num  int64
+	woffset  int64
+	roffset  int64
+	soffset  int64
+	file     *os.File
+	data     []byte
+	name     string
+	ctx      *Context
+	filesize int64
+	topic    *Topic
+	num      int64
 	sync.RWMutex
 }
 
-type writer struct {
-	fid    int         // 文件编号,每次映射都会自增
-	offset int         // 文件内容写入偏移量(即当前写入的位置)
-	data   []byte      // 内存映射文件数据
-	flag   bool        // 是否已映射
-	wmap   map[int]int // 文件编号和偏移量关系表
-}
+func NewQueue(name string, ctx *Context, topic *Topic) *queue {
+	queue := &queue{name: name, ctx: ctx, topic: topic}
 
-type reader struct {
-	fid    int         // 文件编号,每次映射都会自增
-	offset int         // 文件内容读取偏移量(即当前读取的位置)
-	data   []byte      // 内存映射文件数据
-	flag   bool        // 是否已映射
-	rmap   map[int]int // 文件编号和偏移量关系表
-}
-
-type scanner struct {
-	fid    int    // 文件编号,每次映射都会自增
-	offset int    // 文件内容读取偏移量(即当前读取的位置)
-	data   []byte // 内存映射文件数据
-	flag   bool   // 是否已映射
-}
-
-func NewQueue(name string, ctx *Context) *queue {
-	queueSavePath = ctx.Conf.DataSavePath
-	return &queue{
-		name: name,
-		ctx:  ctx,
-		w:    &writer{wmap: make(map[int]int)},
-		r:    &reader{rmap: make(map[int]int)},
-		s:    &scanner{},
-	}
-}
-
-// 上次中断后,记录元数据,当topic.queue重启启动时,根据元数据还原上次执行环境
-func (q *queue) setByMetaData(readFid, readOffset, writeFid, writeOffset int, wmap map[int]int) error {
-	if readFid > 0 {
-		q.r.fid = readFid
-		q.r.offset = readOffset
-		if err := q.r.mmap(q.name); err != nil {
-			return err
-		}
-	}
-
-	if writeFid > 0 {
-		q.w.fid = writeFid
-		q.w.offset = writeOffset
-		if err := q.w.mmap(q.name); err != nil {
-			return err
-		}
-		q.w.wmap = wmap
-	}
-
-	return nil
-}
-
-func (w *writer) mmap(queueName string) error {
-	fname := fmt.Sprintf("%s/%s_%d.queue", queueSavePath, queueName, w.fid)
-
-	f, err := os.OpenFile(fname, os.O_RDWR|os.O_CREATE, 0600)
+	path := fmt.Sprintf("%s/%s.queue", ctx.Conf.DataSavePath, name)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
-		return err
+		log.Fatalf("open %s.queue failed, %v\n", queue.name, err)
+	} else {
+		queue.file = f
 	}
 
-	// 扩展文件内容
-	if _, err := f.WriteAt([]byte{'0'}, FILE_SIZE-1); nil != err {
+	stat, err := f.Stat()
+	if err != nil {
+		log.Fatalf("get %s.queue stat failed, %v\n", queue.name, err)
+	}
+
+	initMmapSize := int(stat.Size())
+
+	// 新文件,扩展文件
+	if initMmapSize == 0 {
+		if _, err := f.WriteAt([]byte{'0'}, int64(os.Getpagesize())-1); err != nil {
+			log.Fatalf("extend %v.queue failed, %v\n", queue.name, err)
+		}
+
+		if runtime.GOOS != "windows" {
+			if err := syscall.Fdatasync(int(f.Fd())); err != nil {
+				log.Fatalf("sync %v.queue failed, %v\n", queue.name, err)
+			}
+		} else {
+			if err := f.Sync(); err != nil {
+				log.Fatalf("sync %v.queue failed, %v\n", queue.name, err)
+			}
+		}
+
+		initMmapSize = os.Getpagesize()
+	}
+
+	if err := queue.mmap(initMmapSize); err != nil {
 		log.Fatalln(err)
-	} else {
-		f.Close()
 	}
 
-	f, err = os.OpenFile(fname, os.O_RDWR, 0600)
-	if err != nil {
-		return err
-	} else {
-		defer f.Close()
-	}
-
-	w.data, err = syscall.Mmap(int(f.Fd()), 0, FILE_SIZE, syscall.PROT_WRITE, syscall.MAP_SHARED)
-	if err != nil {
-		return err
-	}
-
-	w.flag = true
-	return nil
-}
-
-// 偏移位置重置为0
-func (w *writer) unmap() error {
-	if err := syscall.Munmap(w.data); nil != err {
-		return err
-	}
-	w.flag = false
-	w.offset = 0
-	return nil
-}
-
-func (s *scanner) mmap(queueName string) error {
-	fname := fmt.Sprintf("%s/%s_%d.queue", queueSavePath, queueName, s.fid)
-
-	f, err := os.OpenFile(fname, os.O_RDWR, 0600)
-	if err != nil {
-		return err
-	} else {
-		defer f.Close()
-	}
-
-	s.data, err = syscall.Mmap(int(f.Fd()), 0, FILE_SIZE, syscall.PROT_WRITE, syscall.MAP_SHARED)
-	if err != nil {
-		return err
-	}
-
-	s.flag = true
-	return nil
-}
-
-func (s *scanner) unmap(queueName string) error {
-	fname := fmt.Sprintf("%s/%s_%d.queue", queueSavePath, queueName, s.fid)
-	if err := syscall.Munmap(s.data); nil != err {
-		return err
-	}
-	if err := os.Remove(fname); err != nil {
-		return err
-	}
-	s.flag = false
-	s.offset = 0
-	return nil
+	return queue
 }
 
 // 队列扫描未确认消息
 func (q *queue) scan() ([]byte, error) {
 	q.Lock()
-	q.LogDebug(fmt.Sprintf("scan.offset:%v read.offset:%v write.offset:%v", q.s.offset, q.r.offset, q.w.offset))
+	// q.LogDebug(fmt.Sprintf("scan.offset:%v read.offset:%v write.offset:%v", q.soffset, q.roffset, q.woffset))
 
-	if !q.s.flag {
-		q.s.fid++
-		if err := q.s.mmap(q.name); err != nil {
-			q.s.fid--
-			if os.IsNotExist(err) {
-				q.Unlock()
-				return nil, errors.New("write has not started.")
-			} else {
-				q.Unlock()
-				return nil, err
-			}
-		}
+	// 是否需要重写文件大小
+	if q.soffset > REWRITE_SIZE {
+		q.rewrite()
 	}
 
-	soffset := q.s.offset
-	roffset, ok := q.r.rmap[q.s.fid]
-	if !ok {
+	if q.soffset == q.roffset {
 		q.Unlock()
-		return nil, errors.New("read has not started.")
+		return nil, errors.New("no message")
 	}
 
-	// 当scan.offset == read.offset时,有两种情况
-	// 1.已经到文件末尾,可能已有下个文件,则继续下个文件
-	// 2.未到文件末尾,说明目前位置读过的数据已经全部得到扫描
-	if soffset == roffset {
-		if _, ok := q.r.rmap[q.s.fid+1]; ok {
-			if err := q.s.unmap(q.name); err != nil {
-				q.Unlock()
-				return nil, err
-			} else {
-				delete(q.r.rmap, q.s.fid)
-				q.Unlock()
-				return q.scan()
-			}
-		} else {
-			q.Unlock()
-			return nil, errors.New("no message")
-		}
-	}
-
-	// 读一条消息
 	// 消息结构 flag(1-byte) + status(2-bytes) + msg_len(4-bytes) + msg(n-bytes)
-	if flag := q.s.data[soffset]; flag != 'v' {
+	if flag := q.data[q.soffset]; flag != 'v' {
 		q.Unlock()
 		return nil, errors.New("unkown msg flag")
 	}
 
-	status := binary.BigEndian.Uint16(q.s.data[soffset+1 : soffset+3])
-	msgLen := int(binary.BigEndian.Uint32(q.s.data[soffset+3 : soffset+7]))
+	status := binary.BigEndian.Uint16(q.data[q.soffset+1 : q.soffset+3])
+	msgLen := int64(binary.BigEndian.Uint32(q.data[q.soffset+3 : q.soffset+7]))
 
 	// 当前的消息已被确认了,需要跳过到下一条消息
 	if status == MSG_STATUS_FIN {
-		q.s.offset += 1 + 2 + 4 + msgLen
+		q.soffset += 1 + 2 + 4 + msgLen
 		q.Unlock()
 		return q.scan() // 递归调用,注意死锁问题
 	}
 
 	// 消息未超时
-	expireTime := binary.BigEndian.Uint64(q.s.data[soffset+7 : soffset+15])
-	q.LogDebug(fmt.Sprintf("msg.expire:%v now:%v", expireTime, time.Now().Unix()))
+	expireTime := binary.BigEndian.Uint64(q.data[q.soffset+7 : q.soffset+15])
+	// q.LogDebug(fmt.Sprintf("msg.expire:%v now:%v", expireTime, time.Now().Unix()))
 	if expireTime > uint64(time.Now().Unix()) {
 		q.Unlock()
 		return nil, errors.New("no message expire.")
 	}
 
-	// 设置消息已超时
-	binary.BigEndian.PutUint16(q.s.data[soffset+1:soffset+3], uint16(MSG_STATUS_EXPIRE))
+	// 消息已超时
+	binary.BigEndian.PutUint16(q.data[q.soffset+1:q.soffset+3], uint16(MSG_STATUS_EXPIRE))
 	msg := make([]byte, msgLen)
-	copy(msg, q.s.data[soffset+7:soffset+7+msgLen])
-	q.s.offset += 1 + 2 + 4 + msgLen
-
-	// 当扫描到文件末尾时,说明文件内消息已被全部得到确认,可解除映射并移除数据文件
-	if q.s.offset == roffset {
-		if _, ok := q.r.rmap[q.r.fid+1]; ok {
-			if err := q.s.unmap(q.name); err != nil {
-				q.Unlock()
-				return nil, err
-			} else {
-				delete(q.r.rmap, q.s.fid)
-			}
-		}
-	}
+	copy(msg, q.data[q.soffset+7:q.soffset+7+msgLen])
+	q.soffset += 1 + 2 + 4 + msgLen
 
 	q.Unlock()
 	return msg, nil
 }
 
-// 如果要确认消息刚好在映射文件中,则直接操作文件,否则调用file.writeAt写入对应文件
-// 几种情况
-// 1.消费后立马得到确认(此时应该在读文件,有可能读比确认的快)
-// 2.消费后一直没有得到确认(此时应该在扫描文件)
-// 3.topic设置为自动确认(不需要处理)
-func (q *queue) ack(fid, offset int) error {
-	if fid == q.r.fid {
-		binary.BigEndian.PutUint16(q.r.data[offset+1:offset+3], MSG_STATUS_FIN)
-		return nil
-	}
-	if fid == q.s.fid {
-		binary.BigEndian.PutUint16(q.s.data[offset+1:offset+3], MSG_STATUS_FIN)
-		return nil
-	}
+// 重写文件大小
+func (q *queue) rewrite() error {
+	q.LogInfo(fmt.Sprintf("begin rewrite %v.queue, filesize:%v.", q.name, q.filesize))
+	defer func() {
+		q.LogInfo(fmt.Sprintf("after rewrite %v.queue, filesize:%v.", q.name, q.filesize))
+	}()
 
-	fname := fmt.Sprintf("%s/%s_%d.queue", queueSavePath, q.name, fid)
-	f, err := os.OpenFile(fname, os.O_RDONLY, 0600)
+	tempPath := fmt.Sprintf("%s/%s.temp.queue", q.ctx.Conf.DataSavePath, q.name)
+	f, err := os.OpenFile(tempPath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
-		return err
-	} else {
-		defer f.Close()
+		log.Fatalln(err)
 	}
 
-	var status []byte
-	binary.BigEndian.PutUint16(status, uint16(MSG_STATUS_FIN))
-	if _, err := f.WriteAt(status, int64(offset)); err != nil {
-		return err
-	} else {
-		return nil
-	}
-}
+	pageSize := os.Getpagesize()
+	size := q.filesize - int64(q.soffset)
+	q.LogDebug(fmt.Sprintf("fileszie:%v,queue.soffset:%v,size:%v", q.filesize, q.soffset, size))
 
-func (r *reader) mmap(queueName string) error {
-	fname := fmt.Sprintf("%s/%s_%d.queue", queueSavePath, queueName, r.fid)
-
-	f, err := os.OpenFile(fname, os.O_RDWR, 0600)
-	if err != nil {
-		return err
-	} else {
-		defer f.Close()
+	// 确保mmap大小是页面大小的倍数
+	sz := int(size)
+	if (sz % pageSize) != 0 {
+		remainSize := int64(sz - sz/pageSize*pageSize)
+		if (q.filesize-q.woffset)-remainSize-int64(pageSize) > 0 {
+			// 文件剩余空间满足页的大小的倍数,可以缩小文件大小
+			size = size - remainSize
+		} else {
+			// 不满足,需要增加文件大小
+			size = int64(sz/pageSize+1) * int64(pageSize)
+		}
 	}
 
-	r.data, err = syscall.Mmap(int(f.Fd()), 0, FILE_SIZE, syscall.PROT_WRITE, syscall.MAP_SHARED)
+	// 新文件,扩展文件
+	_, err = f.WriteAt([]byte{'0'}, size-1)
 	if err != nil {
 		return err
 	}
 
-	r.flag = true
+	data, err := syscall.Mmap(int(f.Fd()), 0, int(size), syscall.PROT_WRITE, syscall.MAP_SHARED)
+	if err != nil {
+		return err
+	}
+
+	// 复制内容
+	copy(data, q.data[q.soffset:])
+
+	q.file.Close()
+	if err := q.unmap(); err != nil {
+		return err
+	}
+
+	q.LogDebug(fmt.Sprintf("before rewrite, scan-offset:%v, read-offset:%v, write-offset:%v", q.soffset, q.roffset, q.woffset))
+	q.data = data
+	q.file = f
+	q.roffset -= q.soffset
+	q.woffset -= q.soffset
+	q.filesize = size
+	q.LogDebug(fmt.Sprintf("after rewrite, scan-offset:%v, read-offset:%v, write-offset:%v", q.soffset, q.roffset, q.woffset))
+	// data = nil
+
+	for k, v := range q.topic.waitAckMap {
+		q.topic.waitAckMap[k] = v - q.soffset
+	}
+
+	q.soffset = 0
+
+	path := fmt.Sprintf("%s/%s.queue", q.ctx.Conf.DataSavePath, q.name)
+	if err := os.Rename(tempPath, path); err != nil {
+		return err
+	}
+
 	return nil
 }
 
-// 偏移位置重置为0
-func (r *reader) unmap() error {
-	if err := syscall.Munmap(r.data); nil != err {
-		return err
-	}
-	r.flag = false
-	r.offset = 0
-	return nil
-}
-
-// 队列读取消息
-func (q *queue) read(isAutoAck bool) ([]byte, *MsgIndex, error) {
+// 消息设置为已确认消费
+func (q *queue) ack(offset int64) error {
 	q.Lock()
 	defer q.Unlock()
 
-	if !q.r.flag {
-		q.r.fid++
-		if err := q.r.mmap(q.name); err != nil {
-			q.r.fid--
-			if os.IsNotExist(err) {
-				return nil, nil, errors.New("no message")
-			} else {
-				return nil, nil, err
-			}
+	if offset > int64(len(q.data))-1 {
+		return fmt.Errorf("ack.offset greather than queue.length.")
+	}
+	if q.data[offset] != 'v' {
+		return fmt.Errorf("ack.offset error.")
+	}
+
+	binary.BigEndian.PutUint16(q.data[offset+1:offset+3], MSG_STATUS_FIN)
+	return nil
+}
+
+// 映射文件
+func (q *queue) mmap(size int) error {
+	stat, err := q.file.Stat()
+	if err != nil {
+		return fmt.Errorf("mmap %v.queue failed, %v.\n", q.name, err)
+	}
+	if stat.Size() == 0 {
+		return fmt.Errorf("mmap %v.queue failed, file is empty.\n", q.name)
+	}
+
+	// 解除上一次映射,如果有的话
+	if len(q.data) > 0 {
+		if err := q.unmap(); nil != err {
+			return err
 		}
 	}
 
-	fid := q.r.fid
-	roffset := q.r.offset
-	woffset, ok := q.w.wmap[q.r.fid]
-	if !ok {
-		return nil, nil, errors.New("no write offset")
+	if err := mmap(q, size); err != nil {
+		return err
 	}
 
-	if roffset == woffset {
-		_, ok := q.w.wmap[q.r.fid+1]
-		// 当woffset等于文件大小,说明woffset已经是文件的末尾
-		// 当已存在下一个写文件,说明woffset已经是文件的末尾
-		if woffset == FILE_SIZE || ok {
-			if err := q.r.unmap(); err != nil {
-				return nil, nil, err
-			} else {
-				delete(q.w.wmap, q.r.fid)
-				return q.read(isAutoAck)
-			}
-		} else {
-			return nil, nil, errors.New("no message")
-		}
+	q.filesize = stat.Size()
+	return nil
+}
+
+// 解除映射
+func (q *queue) unmap() error {
+	return unmap(q)
+}
+
+// 队列读取消息
+func (q *queue) read(isAutoAck bool) ([]byte, int64, error) {
+	q.Lock()
+	defer q.Unlock()
+
+	msgOffset := q.roffset
+	if q.roffset == q.woffset {
+		return nil, 0, errors.New("no message")
 	}
 
-	// 读一条消息
 	// 消息结构 flag(1-byte) + status(2-bytes) + msg_len(4-bytes) + msg(n-bytes)
-	if flag := q.r.data[roffset]; flag != 'v' {
-		return nil, nil, errors.New("unkown msg flag")
+	if flag := q.data[q.roffset]; flag != 'v' {
+		return nil, 0, errors.New("unkown msg flag")
 	}
 
 	// 如果所属的topic是自动确认,则status设置为MSG_STATUS_FIN
 	if isAutoAck {
-		binary.BigEndian.PutUint16(q.r.data[roffset+1:roffset+3], uint16(MSG_STATUS_FIN))
+		binary.BigEndian.PutUint16(q.data[q.roffset+1:q.roffset+3], uint16(MSG_STATUS_FIN))
 	} else {
-		binary.BigEndian.PutUint16(q.r.data[roffset+1:roffset+3], uint16(MSG_STATUS_WAIT))
-		binary.BigEndian.PutUint64(q.r.data[roffset+7:roffset+15], uint64(time.Now().Unix())+uint64(q.ctx.Conf.MsgTTR))
-		q.LogDebug(fmt.Sprintf("msg had been readed. exipire time is %v", uint64(time.Now().Unix())+uint64(q.ctx.Conf.MsgTTR)))
+		binary.BigEndian.PutUint16(q.data[q.roffset+1:q.roffset+3], uint16(MSG_STATUS_WAIT))
+		binary.BigEndian.PutUint64(q.data[q.roffset+7:q.roffset+15], uint64(time.Now().Unix())+uint64(q.ctx.Conf.MsgTTR))
+		// q.LogDebug(fmt.Sprintf("msg had been readed. exipire time is %v", uint64(time.Now().Unix())+uint64(q.ctx.Conf.MsgTTR)))
 	}
 
-	msgLen := int(binary.BigEndian.Uint32(q.r.data[roffset+3 : roffset+7]))
+	msgLen := int64(binary.BigEndian.Uint32(q.data[q.roffset+3 : q.roffset+7]))
 	msg := make([]byte, msgLen)
-	copy(msg, q.r.data[roffset+7:roffset+7+msgLen])
-	q.r.offset += 1 + 2 + 4 + msgLen
-	q.r.rmap[q.r.fid] = q.r.offset
+	copy(msg, q.data[q.roffset+7:q.roffset+7+msgLen])
+	q.roffset += 1 + 2 + 4 + msgLen
 	atomic.AddInt64(&q.num, -1)
 
-	// 当读到文件末尾时,说明文件内消息已被全部读取,可解除映射并移除数据文件
-	if q.r.offset == woffset {
-		_, ok := q.w.wmap[q.r.fid+1]
-		// 当woffset等于文件大小,说明woffset已经是文件的末尾
-		// 当已存在下一个写文件,说明woffset已经是文件的末尾
-		if woffset == FILE_SIZE || ok {
-			if err := q.r.unmap(); err != nil {
-				return nil, nil, err
-			} else {
-				delete(q.w.wmap, q.r.fid)
-			}
-		}
-	}
-
-	return msg, NewMsgIndex(fid, roffset), nil
+	return msg, msgOffset, nil
 }
 
 // 新写入信息的长度不能超过文件大小,超过则新建文件
@@ -418,39 +308,44 @@ func (q *queue) write(msg []byte) error {
 	q.Lock()
 	defer q.Unlock()
 
-	woffset := q.w.offset
-
-	if !q.w.flag {
-		q.w.fid++
-		if err := q.w.mmap(q.name); err != nil {
-			q.w.fid--
+	msgLen := int64(len(msg))
+	if q.woffset+1+2+4+msgLen > q.filesize {
+		// 文件大小不够,需要扩展文件
+		if err := q.grow(); err != nil {
 			return err
 		}
-	}
-
-	msgLen := len(msg)
-	if woffset+1+2+4+msgLen > FILE_SIZE {
-		if err := q.w.unmap(); err != nil {
-			return err
-		}
-		q.w.fid++
-		if err := q.w.mmap(q.name); err != nil {
-			q.w.fid--
-			return err
-		}
-		woffset = q.w.offset
 	}
 
 	// package = flag(1-byte) + status(2-bytes) + msgLen(4-bytes) + msg(n-bytes)
-	copy(q.w.data[woffset:woffset+1], []byte{'v'})
-	binary.BigEndian.PutUint16(q.w.data[woffset+1:woffset+3], uint16(MSG_STATUS_DEFAULT))
-	binary.BigEndian.PutUint32(q.w.data[woffset+3:woffset+7], uint32(msgLen))
-	copy(q.w.data[woffset+7:woffset+7+msgLen], msg)
+	copy(q.data[q.woffset:q.woffset+1], []byte{'v'})
+	binary.BigEndian.PutUint16(q.data[q.woffset+1:q.woffset+3], uint16(MSG_STATUS_DEFAULT))
+	binary.BigEndian.PutUint32(q.data[q.woffset+3:q.woffset+7], uint32(msgLen))
+	copy(q.data[q.woffset+7:q.woffset+7+msgLen], msg)
 
-	q.w.offset += 1 + 2 + 4 + msgLen
-	q.w.wmap[q.w.fid] = q.w.offset
+	q.woffset += 1 + 2 + 4 + msgLen
 	atomic.AddInt64(&q.num, 1)
 
+	return nil
+}
+
+// 扩展文件大小,每次为GROW_SIZE
+func (q *queue) grow() error {
+	fz := q.filesize + GROW_SIZE
+	if err := q.mmap(int(fz)); err != nil {
+		return err
+	}
+
+	if runtime.GOOS != "windows" {
+		if err := q.file.Truncate(fz); err != nil {
+			return errors.New(fmt.Sprintf("file resize error: %s\n", err))
+		}
+	}
+	if err := q.file.Sync(); err != nil {
+		return errors.New(fmt.Sprintf("file sync error: %s\n", err))
+	}
+
+	q.LogInfo(fmt.Sprintf("grow %v.queue size to %v, and old is %v, default to %v", q.name, fz, q.filesize, GROW_SIZE))
+	q.filesize = fz
 	return nil
 }
 

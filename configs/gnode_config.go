@@ -6,11 +6,12 @@ import (
 
 type GnodeConfig struct {
 	// node
-	NodeId       int
-	NodeWeight   int
-	MsgTTR       int
-	MsgMaxRetry  int
-	DataSavePath string
+	NodeId        int
+	NodeWeight    int
+	MsgTTR        int
+	MsgMaxRetry   int
+	MsgMaxPushNum int
+	DataSavePath  string
 
 	// gresiter
 	GregisterAddr string
@@ -47,7 +48,10 @@ func (c *GnodeConfig) Validate() error {
 		return errors.New("nodeId must be between 1 and 1024.")
 	}
 	if c.LogLevel > 4 || c.LogLevel < 0 {
-		return errors.New("log.level must be between 1 and 5.")
+		return errors.New("logLevel must be between 1 and 5.")
+	}
+	if c.MsgMaxPushNum > 1000 || c.MsgMaxPushNum <= 0 {
+		return errors.New("MsgMaxPushNum must be between 1 and 1000.")
 	}
 	return nil
 }
@@ -65,6 +69,10 @@ func (c *GnodeConfig) SetDefault() {
 	if c.MsgMaxRetry == 0 {
 		c.MsgMaxRetry = 5
 	}
+	if c.MsgMaxPushNum == 0 {
+		c.MsgMaxPushNum = 1000
+	}
+
 	// 数据存储目录,相对于命令执行所在目录,例如在/home执行启动命令,将会生成/home/data目录
 	if len(c.DataSavePath) == 0 {
 		c.DataSavePath = "data"
@@ -81,7 +89,7 @@ func (c *GnodeConfig) SetDefault() {
 		c.LogMaxSize = 5000000
 	}
 	if len(c.LogTargetType) == 0 {
-		c.LogTargetType = "file,console"
+		c.LogTargetType = "console"
 	}
 
 	// server default config

@@ -34,6 +34,12 @@ type TcpConn struct {
 }
 
 // <cmd_name> <param_1> ... <param_n>\n
+// 涉及到两种错误
+// 一种是协议解析出错,在一个命令出错之后,连接可能存在数据未读取完毕,
+// 例如推送pub由两个命令行组成,当第一个命令行解析出错时,第二个命令行
+// 还未读取,此时应该由server主动关闭连接
+// 一种是协议解析完成,但是执行业务的时候失败,此时server不需要断开连接,
+// 它可以正常执行下个命令,所以应该由客户端自己决定是否关闭连接
 func (c *TcpConn) Handle() {
 	defer c.LogInfo("tcp connection handle exit.")
 
@@ -95,7 +101,7 @@ func (c *TcpConn) Handle() {
 		case bytes.Equal(cmd, []byte("set")):
 			err = c.SET(params)
 		default:
-			c.LogError(fmt.Sprintf("unkown cmd: %s", cmd))
+			err = errors.New(fmt.Sprintf("unkown cmd: %s", cmd))
 		}
 
 		if err != nil {
@@ -106,6 +112,7 @@ func (c *TcpConn) Handle() {
 	}
 
 	// force close conn
+	time.Sleep(2 * time.Second)
 	c.conn.Close()
 	close(c.exitChan)
 }
@@ -113,11 +120,8 @@ func (c *TcpConn) Handle() {
 // pub <topic_name> <delay-time>
 // [ 4-byte size in bytes ][ N-byte binary data ]
 func (c *TcpConn) PUB(params [][]byte) error {
-	var err error
-
 	if len(params) != 2 {
-		c.LogError(params)
-		return errors.New("pub params is error")
+		return errors.New("pub.params is error")
 	}
 
 	topic := string(params[0])
@@ -127,7 +131,7 @@ func (c *TcpConn) PUB(params [][]byte) error {
 	}
 
 	bodylenBuf := make([]byte, 4)
-	_, err = io.ReadFull(c.reader, bodylenBuf)
+	_, err := io.ReadFull(c.reader, bodylenBuf)
 	if err != nil {
 		return errors.New(fmt.Sprintf("read bodylen failed, %v", err))
 	}
@@ -142,8 +146,8 @@ func (c *TcpConn) PUB(params [][]byte) error {
 	cb := make([]byte, len(body))
 	copy(cb, body)
 
-	if msgId, err := c.serv.ctx.Dispatcher.push(topic, cb, delay); err != nil {
-		c.LogError(err)
+	msgId, err := c.serv.ctx.Dispatcher.push(topic, cb, delay)
+	if err != nil {
 		c.RespErr(err)
 	} else {
 		c.RespRes(strconv.FormatUint(msgId, 10))
@@ -159,14 +163,13 @@ func (c *TcpConn) MPUB(params [][]byte) error {
 	var err error
 
 	if len(params) != 2 {
-		c.LogError(params)
 		return errors.New("pub params is error")
 	}
 
 	topic := string(params[0])
 	num, _ := strconv.Atoi(string(params[1]))
-	if num <= 0 {
-		return errors.New("num must be greather than 0")
+	if num <= 0 || num > c.serv.ctx.Conf.MsgMaxPushNum {
+		return errors.New(fmt.Sprintf("number of push must be between 1 and %v", c.serv.ctx.Conf.MsgMaxPushNum))
 	}
 
 	delays := make([]int, num, num)
@@ -200,11 +203,17 @@ func (c *TcpConn) MPUB(params [][]byte) error {
 		msgs[i] = body
 	}
 
-	if _, err := c.serv.ctx.Dispatcher.mpush(topic, msgs, delays); err != nil {
-		c.LogError(err)
+	msgIds, err := c.serv.ctx.Dispatcher.mpush(topic, msgs, delays)
+	if err != nil {
+		c.RespErr(err)
+		return nil
+	}
+
+	nbytes, err := json.Marshal(msgIds)
+	if err != nil {
 		c.RespErr(err)
 	} else {
-		c.RespRes("ok")
+		c.RespRes(string(nbytes))
 	}
 
 	return nil
@@ -224,10 +233,10 @@ func (c *TcpConn) POP(params [][]byte) error {
 
 	if err != nil {
 		c.RespErr(err)
-		return nil
+	} else {
+		c.RespMsg(msg)
 	}
 
-	c.RespMsg(msg)
 	return nil
 }
 
@@ -242,10 +251,10 @@ func (c *TcpConn) ACK(params [][]byte) error {
 
 	if err := c.serv.ctx.Dispatcher.ack(topic, uint64(msgId)); err != nil {
 		c.RespErr(err)
-		return nil
+	} else {
+		c.RespRes("ok")
 	}
 
-	c.RespRes("ok")
 	return nil
 }
 
@@ -261,8 +270,7 @@ func (c *TcpConn) DEAD(params [][]byte) error {
 	n, _ := strconv.Atoi(string(num))
 	msgs, err := c.serv.ctx.Dispatcher.dead(topic, n)
 	if err != nil {
-		c.RespErr(err)
-		return nil
+		return err
 	}
 	if len(msgs) == 0 {
 		c.RespErr(errors.New("no message"))
