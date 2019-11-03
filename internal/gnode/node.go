@@ -29,8 +29,9 @@ type Gnode struct {
 	cfg      *configs.GnodeConfig
 }
 
-func New() *Gnode {
+func New(cfg *configs.GnodeConfig) *Gnode {
 	return &Gnode{
+		cfg:      cfg,
 		version:  "1.1",
 		exitChan: make(chan struct{}),
 	}
@@ -43,13 +44,6 @@ func (gn *Gnode) Run() {
 	}
 	if !atomic.CompareAndSwapInt32(&gn.running, 0, 1) {
 		log.Fatalln("gnode start failed.")
-	}
-
-	if gn.cfg == nil {
-		gn.SetDefaultConfig()
-	}
-	if err := gn.cfg.Validate(); err != nil {
-		log.Fatalln(err)
 	}
 
 	// 创建数据(消息和日志)文件存储位置
@@ -175,6 +169,99 @@ func (gn *Gnode) SetDefaultConfig() {
 
 	gn.cfg = cfg
 	gn.cfg.SetDefault()
+}
+
+func NewGnodeConfig() *configs.GnodeConfig {
+	var cfg *configs.GnodeConfig
+
+	// 指定配置文件
+	cfgFile := flag.String("config_file", "", "config file")
+	if len(*cfgFile) > 0 {
+		isExist, err := utils.PathExists(*cfgFile)
+		if err != nil {
+			log.Fatalf("config file %v is error, %v\n", *cfgFile, err)
+		}
+		if !isExist {
+			log.Fatalf("config file %v is not exist.\n", *cfgFile)
+		}
+
+		cfg, err = LoadConfigFromFile(*cfgFile)
+		if err != nil {
+			log.Fatalf("load config file %v error, %v\n", *cfgFile, err)
+		}
+	} else {
+		cfg = new(configs.GnodeConfig)
+	}
+
+	flag.StringVar(&cfg.TcpServAddr, "tcp_addr", cfg.TcpServAddr, "tcp address")
+	flag.StringVar(&cfg.GregisterAddr, "register_addr", cfg.GregisterAddr, "register address")
+	flag.StringVar(&cfg.HttpServAddr, "http_addr", cfg.HttpServAddr, "http address")
+	flag.StringVar(&cfg.ReportTcpAddr, "report_tcp_addr", cfg.ReportTcpAddr, "report tcp address")
+	flag.StringVar(&cfg.ReportHttpAddr, "report_http_addr", cfg.ReportHttpAddr, "report http address")
+	flag.IntVar(&cfg.NodeId, "node_id", cfg.NodeId, "node unique id")
+	flag.IntVar(&cfg.NodeWeight, "node_weight", cfg.NodeWeight, "node weight")
+	flag.IntVar(&cfg.MsgTTR, "msg_ttr", cfg.MsgTTR, "msg ttr")
+	flag.IntVar(&cfg.MsgMaxRetry, "msg_max_retry", cfg.MsgMaxRetry, "msg max retry")
+	flag.StringVar(&cfg.DataSavePath, "data_save_path", cfg.DataSavePath, "data save path")
+	flag.Parse()
+
+	cfg.SetDefault()
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("config file %v error, %v\n", *cfgFile, err)
+	}
+
+	return cfg
+}
+
+// 设置配置选项
+func LoadConfigFromFile(cfgFile string) (*configs.GnodeConfig, error) {
+	if res, err := utils.PathExists(cfgFile); !res {
+		if err != nil {
+			return nil, fmt.Errorf("config file %s is error, %s \n", cfgFile, err)
+		} else {
+			return nil, fmt.Errorf("config file %s is not exists \n", cfgFile)
+		}
+	}
+
+	c, err := ini.Load(cfgFile)
+	if err != nil {
+		return nil, fmt.Errorf("load config file failed, %v \n", cfgFile, err)
+	}
+
+	cfg := new(configs.GnodeConfig)
+
+	// node
+	cfg.NodeId, _ = c.Section("node").Key("id").Int()
+	cfg.NodeWeight, _ = c.Section("node").Key("weight").Int()
+	cfg.MsgTTR, _ = c.Section("node").Key("msgTTR").Int()
+	cfg.MsgMaxRetry, _ = c.Section("node").Key("msgMaxRetry").Int()
+	cfg.ReportTcpAddr = c.Section("node").Key("reportTcpaddr").String()
+	cfg.ReportHttpAddr = c.Section("node").Key("reportHttpaddr").String()
+	cfg.DataSavePath = c.Section("node").Key("dataSavePath").String()
+
+	// log config
+	cfg.LogFilename = c.Section("log").Key("filename").String()
+	cfg.LogLevel, _ = c.Section("log").Key("level").Int()
+	cfg.LogRotate, _ = c.Section("log").Key("rotate").Bool()
+	cfg.LogMaxSize, _ = c.Section("log").Key("max_size").Int()
+	cfg.LogTargetType = c.Section("log").Key("target_type").String()
+
+	// http server config
+	cfg.HttpServAddr = c.Section("http_server").Key("addr").String()
+	cfg.HttpServCertFile = c.Section("http_server").Key("certFile").String()
+	cfg.HttpServKeyFile = c.Section("http_server").Key("keyFile").String()
+	cfg.HttpServEnableTls, _ = c.Section("http_server").Key("enableTls").Bool()
+
+	// tcp server config
+	cfg.TcpServAddr = c.Section("tcp_server").Key("addr").String()
+	cfg.TcpServCertFile = c.Section("tcp_server").Key("certFile").String()
+	cfg.TcpServKeyFile = c.Section("tcp_server").Key("keyFile").String()
+	cfg.TcpServEnableTls, _ = c.Section("tcp_server").Key("enableTls").Bool()
+
+	// register config
+	cfg.GregisterAddr = c.Section("gregister").Key("addr").String()
+
+	return cfg, nil
 }
 
 // 初始化日志组件
