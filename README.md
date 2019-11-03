@@ -19,36 +19,29 @@ gmq是一个简单的推拉模型,基本架构如下:
 - 6. topic将消息存储于queue队列中,等待客户端消费
 
 ## 2. 安装运行
-### 2.1 安装glide依赖管理工具
-如果你已经安装了,可以直接跳过这步
-```
-git clone https://github.com/xkeyideal/glide.git $GOPATH/src/github.com/xkeyideal/glide
-cd $GOPATH/src/github.com/xkeyideal/glide
-make install
-
-# 如果你翻不了墙,可以将`golang.org/x/sys/unix`映射到`github.com/golang/sys`上,在终端上执行下面命令
-glide mirror set https://golang.org/x/sys/unix https://github.com/golang/sys --base golang.org/x/sys
-```
-
-### 2.2 安装gmq
+### 2.1 安装gmq
 ```bash
-git clone https://github.com/wuzhc/gmq.git $GOPATH/src/github.com/wuzhc/gmq
-cd $GOPATH/src/github.com/wuzhc/gmq
-make # 编译后执行文件(`gregister`,`gnode`)存储在$GOPATH/bin目录
+git clone https://github.com/wuzhc/gmq.git
+cd gmq
+export GO111MODULE=on 
+export GOPROXY=https://goproxy.io
+go mod tidy
+go mod vendor 
+make build 
 
 # 启动注册中心服务
-$GOPATH/bin/gregister -http_addr=":9595"
+build/gregister -http_addr=":9595"
 # 启动节点
 # http_addr http服务
 # tcp_addr tcp服务
 # node_id节点ID,唯一值,范围在1到1024
 # node_weight节点权重,用于多节点选择节点的依据
-$GOPATH/bin/gnode -http_addr=":9504" -tcp_addr=":9503" -register_addr="http://127.0.0.1:9595" -node_id=1 -node_weight=1 
+build/gnode -http_addr=":9504" -tcp_addr=":9503" -register_addr="http://127.0.0.1:9595" -node_id=1 -node_weight=1 
 ```
 除此之外,还可以直接指定配置文件,命令行参数为`-config_file`,如下:
 ```bash
-gregister -config_file="conf.ini"
-gnode -config_file="conf.ini"
+build/gregister -config_file="conf.ini"
+build/gnode -config_file="conf.ini"
 ```
 配置文件`conf.ini`,参考
 - gnode配置文件 https://github.com/wuzhc/gmq/blob/gmq-dev-v3/cmd/gnode/conf.ini
@@ -57,17 +50,17 @@ gnode -config_file="conf.ini"
 ### 将node服务添加到系统service服务
 ```bash
 # 安装node服务,文件位于`/etc/systemd/system/gmq-node.service`
-$GOPATH/bin/gnode install
+build/gnode install
 # 卸载node服务
-$GOPATH/bin/gnode uninstall
+build/gnode uninstall
 # 启动node服务
-$GOPATH/bin/gnode start
+build/gnode start
 # 停止node服务
-$GOPATH/bin/gnode stop
+build/gnode stop
 # 重启node服务
-$GOPATH/bin/gnode restart
+build/gnode restart
 # 查看node运行状态
-$GOPATH/bin/gnode status
+build/gnode status
 ```
 
 注意:  
