@@ -10,6 +10,7 @@ import (
 // 测试推送
 func TestPush(t *testing.T) {
 	gn := runNode()
+	defer gn.Exit()
 
 	// 连接节点
 	client, err := NewClient("127.0.0.1:9503", 1)
@@ -27,9 +28,6 @@ func TestPush(t *testing.T) {
 	if len(result) == 0 {
 		t.Errorf("result expect msg.Id, result: is empty")
 	}
-
-	close(gn.exitChan)
-	gn.wg.Wait()
 }
 
 // 测试重写队列文件对确认消息的影响
@@ -39,6 +37,7 @@ func TestRewriteForAck(t *testing.T) {
 	os.Remove("data/gnode.log")
 
 	gn := runNode()
+	defer gn.Exit()
 
 	topic := gn.ctx.Dispatcher.GetTopic("test-topic")
 	topic.isAutoAck = false
@@ -80,9 +79,6 @@ func TestRewriteForAck(t *testing.T) {
 	if topic.queue.soffset != topic.queue.roffset {
 		t.Errorf("read-offset:%v != scan-offset:%v\n", topic.queue.soffset, topic.queue.roffset)
 	}
-
-	close(gn.exitChan)
-	gn.wg.Wait()
 }
 
 func BenchmarkPush(b *testing.B) {

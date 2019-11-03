@@ -8,10 +8,8 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/signal"
 	"strings"
 	"sync/atomic"
-	"syscall"
 
 	"github.com/wuzhc/gmq/configs"
 	"github.com/wuzhc/gmq/pkg/logs"
@@ -40,8 +38,6 @@ func New() *Gnode {
 
 // 启动应用
 func (gn *Gnode) Run() {
-	defer gn.wg.Wait()
-
 	if atomic.LoadInt32(&gn.running) == 1 {
 		log.Fatalln("gnode is running.")
 	}
@@ -78,7 +74,6 @@ func (gn *Gnode) Run() {
 	gn.wg.Wrap(NewHttpServ(ctx).Run)
 	gn.wg.Wrap(NewTcpServ(ctx).Run)
 
-	gn.installSignalHandler()
 	ctx.Logger.Info("gnode is running.")
 
 	if err := gn.register(); err != nil {
@@ -88,9 +83,12 @@ func (gn *Gnode) Run() {
 
 // 退出应用
 func (gn *Gnode) Exit() {
+	defer gn.wg.Wait()
+
 	if err := gn.unregister(); err != nil {
 		log.Fatalln("unregister failed")
 	}
+
 	close(gn.exitChan)
 }
 
@@ -177,17 +175,6 @@ func (gn *Gnode) SetDefaultConfig() {
 
 	gn.cfg = cfg
 	gn.cfg.SetDefault()
-}
-
-// 安装退出信号处理器
-func (gn *Gnode) installSignalHandler() {
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-
-	go func() {
-		<-sigs
-		gn.Exit()
-	}()
 }
 
 // 初始化日志组件

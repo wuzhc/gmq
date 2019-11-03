@@ -75,7 +75,7 @@ func (c *GnodeConfig) SetDefault() {
 
 	// 数据存储目录,相对于命令执行所在目录,例如在/home执行启动命令,将会生成/home/data目录
 	if len(c.DataSavePath) == 0 {
-		c.DataSavePath = "data"
+		c.DataSavePath = "data/gnode"
 	}
 
 	// log default config
