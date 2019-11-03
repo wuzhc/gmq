@@ -71,7 +71,7 @@ func (gn *Gnode) Run() {
 	ctx.Logger.Info("gnode is running.")
 
 	if err := gn.register(); err != nil {
-		log.Println("register failed, ", err)
+		log.Printf("register failed, %v\n", err)
 	}
 }
 
@@ -80,111 +80,20 @@ func (gn *Gnode) Exit() {
 	defer gn.wg.Wait()
 
 	if err := gn.unregister(); err != nil {
-		log.Fatalln("unregister failed")
+		log.Printf("unregister failed, %v\n", err)
 	}
 
 	close(gn.exitChan)
 }
 
-// 设置配置选项
-func (gn *Gnode) SetConfig(cfgFile string) {
-	if res, err := utils.PathExists(cfgFile); !res {
-		if err != nil {
-			log.Fatalf("%s is not exists,errors:%s \n", cfgFile, err.Error())
-		} else {
-			log.Fatalf("%s is not exists \n", cfgFile)
-		}
-	}
-
-	c, err := ini.Load(cfgFile)
-	if err != nil {
-		log.Fatalf("Fail to read file: %v \n", err)
-	}
-
-	cfg := new(configs.GnodeConfig)
-
-	// node
-	nodeId, _ := c.Section("node").Key("id").Int()
-	nodeWeight, _ := c.Section("node").Key("weight").Int()
-	msgTTR, _ := c.Section("node").Key("msgTTR").Int()
-	msgMaxRetry, _ := c.Section("node").Key("msgMaxRetry").Int()
-	reportTcpAddr := c.Section("node").Key("reportTcpaddr").String()
-	reportHttpAddr := c.Section("node").Key("reportHttpaddr").String()
-	dataSavePath := c.Section("node").Key("dataSavePath").String()
-
-	// log config
-	cfg.LogFilename = c.Section("log").Key("filename").String()
-	cfg.LogLevel, _ = c.Section("log").Key("level").Int()
-	cfg.LogRotate, _ = c.Section("log").Key("rotate").Bool()
-	cfg.LogMaxSize, _ = c.Section("log").Key("max_size").Int()
-	cfg.LogTargetType = c.Section("log").Key("target_type").String()
-
-	// http server config
-	httpServAddr := c.Section("http_server").Key("addr").String()
-	cfg.HttpServCertFile = c.Section("http_server").Key("certFile").String()
-	cfg.HttpServKeyFile = c.Section("http_server").Key("keyFile").String()
-	cfg.HttpServEnableTls, _ = c.Section("http_server").Key("enableTls").Bool()
-
-	// tcp server config
-	tcpServAddr := c.Section("tcp_server").Key("addr").String()
-	cfg.TcpServCertFile = c.Section("tcp_server").Key("certFile").String()
-	cfg.TcpServKeyFile = c.Section("tcp_server").Key("keyFile").String()
-	cfg.TcpServEnableTls, _ = c.Section("tcp_server").Key("enableTls").Bool()
-
-	// register config
-	registerAddr := c.Section("gregister").Key("addr").String()
-
-	// parse flag
-	flag.StringVar(&cfg.HttpServAddr, "http_addr", httpServAddr, "http address")
-	flag.StringVar(&cfg.ReportHttpAddr, "report_http_addr", reportHttpAddr, "report http address")
-	flag.StringVar(&cfg.TcpServAddr, "tcp_addr", tcpServAddr, "tcp address")
-	flag.StringVar(&cfg.ReportTcpAddr, "report_tcp_addr", reportTcpAddr, "report tcp address")
-	flag.StringVar(&cfg.GregisterAddr, "register_addr", registerAddr, "register address")
-	flag.IntVar(&cfg.NodeId, "node_id", nodeId, "node unique id")
-	flag.IntVar(&cfg.NodeWeight, "node_weight", nodeWeight, "node weight")
-	flag.IntVar(&cfg.MsgTTR, "msg_ttr", msgTTR, "msg ttr")
-	flag.IntVar(&cfg.MsgMaxRetry, "msg_max_retry", msgMaxRetry, "msg max retry")
-	flag.StringVar(&cfg.DataSavePath, "data_save_path", dataSavePath, "data save path")
-	flag.Parse()
-
-	gn.cfg = cfg
-	gn.cfg.SetDefault()
-}
-
-// 设置默认配置选项
-func (gn *Gnode) SetDefaultConfig() {
-	cfg := new(configs.GnodeConfig)
-
-	flag.StringVar(&cfg.TcpServAddr, "tcp_addr", "", "tcp address")
-	flag.StringVar(&cfg.GregisterAddr, "register_addr", "", "register address")
-	flag.StringVar(&cfg.HttpServAddr, "http_addr", "", "http address")
-	flag.StringVar(&cfg.ReportTcpAddr, "report_tcp_addr", "", "report tcp address")
-	flag.StringVar(&cfg.ReportHttpAddr, "report_http_addr", "", "report http address")
-	flag.IntVar(&cfg.NodeId, "node_id", 1, "node unique id")
-	flag.IntVar(&cfg.NodeWeight, "node_weight", 1, "node weight")
-	flag.IntVar(&cfg.MsgTTR, "msg_ttr", 60, "msg ttr")
-	flag.IntVar(&cfg.MsgMaxRetry, "msg_max_retry", 5, "msg max retry")
-	flag.StringVar(&cfg.DataSavePath, "data_save_path", "", "data save path")
-	flag.Parse()
-
-	gn.cfg = cfg
-	gn.cfg.SetDefault()
-}
-
+// gnode配置参数
 func NewGnodeConfig() *configs.GnodeConfig {
+	var err error
 	var cfg *configs.GnodeConfig
 
 	// 指定配置文件
 	cfgFile := flag.String("config_file", "", "config file")
 	if len(*cfgFile) > 0 {
-		isExist, err := utils.PathExists(*cfgFile)
-		if err != nil {
-			log.Fatalf("config file %v is error, %v\n", *cfgFile, err)
-		}
-		if !isExist {
-			log.Fatalf("config file %v is not exist.\n", *cfgFile)
-		}
-
 		cfg, err = LoadConfigFromFile(*cfgFile)
 		if err != nil {
 			log.Fatalf("load config file %v error, %v\n", *cfgFile, err)
@@ -193,6 +102,7 @@ func NewGnodeConfig() *configs.GnodeConfig {
 		cfg = new(configs.GnodeConfig)
 	}
 
+	// 命令行选项
 	flag.StringVar(&cfg.TcpServAddr, "tcp_addr", cfg.TcpServAddr, "tcp address")
 	flag.StringVar(&cfg.GregisterAddr, "register_addr", cfg.GregisterAddr, "register address")
 	flag.StringVar(&cfg.HttpServAddr, "http_addr", cfg.HttpServAddr, "http address")
@@ -205,7 +115,10 @@ func NewGnodeConfig() *configs.GnodeConfig {
 	flag.StringVar(&cfg.DataSavePath, "data_save_path", cfg.DataSavePath, "data save path")
 	flag.Parse()
 
+	// 默认参数值
 	cfg.SetDefault()
+
+	// 检验参数值
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("config file %v error, %v\n", *cfgFile, err)
 	}
@@ -213,7 +126,7 @@ func NewGnodeConfig() *configs.GnodeConfig {
 	return cfg
 }
 
-// 设置配置选项
+// 加载文件配置参数值
 func LoadConfigFromFile(cfgFile string) (*configs.GnodeConfig, error) {
 	if res, err := utils.PathExists(cfgFile); !res {
 		if err != nil {
@@ -225,7 +138,7 @@ func LoadConfigFromFile(cfgFile string) (*configs.GnodeConfig, error) {
 
 	c, err := ini.Load(cfgFile)
 	if err != nil {
-		return nil, fmt.Errorf("load config file failed, %v \n", cfgFile, err)
+		return nil, fmt.Errorf("load config file %v failed, %v \n", cfgFile, err)
 	}
 
 	cfg := new(configs.GnodeConfig)
@@ -302,10 +215,10 @@ func (gn *Gnode) register() error {
 
 		var r rs
 		if err := json.Unmarshal(res, &r); err != nil {
-			log.Fatalln(err)
+			return err
 		}
 		if r.Code == 1 {
-			log.Fatalln(r.Msg)
+			return fmt.Errorf(r.Msg)
 		}
 	}
 
@@ -327,10 +240,10 @@ func (gn *Gnode) unregister() error {
 
 		var r rs
 		if err := json.Unmarshal(res, &r); err != nil {
-			log.Fatalln(err)
+			return err
 		}
 		if r.Code == 1 {
-			log.Fatalln(r.Msg)
+			return fmt.Errorf(r.Msg)
 		}
 	}
 

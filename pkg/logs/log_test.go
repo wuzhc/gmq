@@ -20,7 +20,7 @@ func TestFileTarget(t *testing.T) {
 	}
 
 	conf := fmt.Sprintf(`{"filename":"%v","level":10,"max_size":500,"rotate":true}`, filename)
-	logger := NewDispatcher()
+	logger := NewDispatcher(2)
 	logger.SetTarget(TARGET_FILE, conf)
 	logger.Error(msg)
 

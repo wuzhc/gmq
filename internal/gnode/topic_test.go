@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/wuzhc/gmq/configs"
 )
 
 // 测试推送
@@ -95,7 +97,12 @@ func BenchmarkPush(b *testing.B) {
 }
 
 func runNode() *Gnode {
-	gn := New()
+	cfg := new(configs.GnodeConfig)
+	cfg.SetDefault()
+	cfg.TcpServAddr = ":19995"
+	cfg.HttpServAddr = ":19994"
+
+	gn := New(cfg)
 	go func() {
 		gn.Run()
 	}()
