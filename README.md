@@ -37,13 +37,13 @@ cd $GOPATH/src/github.com/wuzhc/gmq
 make # 编译后执行文件(`gregister`,`gnode`)存储在$GOPATH/bin目录
 
 # 启动注册中心服务
-gregister -http_addr=":9595"
+$GOPATH/bin/gregister -http_addr=":9595"
 # 启动节点
 # http_addr http服务
 # tcp_addr tcp服务
 # node_id节点ID,唯一值,范围在1到1024
 # node_weight节点权重,用于多节点选择节点的依据
-gnode -http_addr=":9504" -tcp_addr=":9503" -register_addr="http://127.0.0.1:9595" -node_id=1 -node_weight=1 
+$GOPATH/bin/gnode -http_addr=":9504" -tcp_addr=":9503" -register_addr="http://127.0.0.1:9595" -node_id=1 -node_weight=1 
 ```
 除此之外,还可以直接指定配置文件,命令行参数为`-config_file`,如下:
 ```bash
@@ -54,6 +54,21 @@ gnode -config_file="conf.ini"
 - gnode配置文件 https://github.com/wuzhc/gmq/blob/gmq-dev-v3/cmd/gnode/conf.ini
 - gregister配置文件 https://github.com/wuzhc/gmq/blob/gmq-dev-v3/cmd/gregister/conf.ini
 
+### 将node服务添加到系统service服务
+```bash
+# 安装node服务,文件位于`/etc/systemd/system/gmq-node.service`
+$GOPATH/bin/gnode install
+# 卸载node服务
+$GOPATH/bin/gnode uninstall
+# 启动node服务
+$GOPATH/bin/gnode start
+# 停止node服务
+$GOPATH/bin/gnode stop
+# 重启node服务
+$GOPATH/bin/gnode restart
+# 查看node运行状态
+$GOPATH/bin/gnode status
+```
 
 注意:  
 - 先启动注册中心`gregister`,再启动节点`gnode`,因为每个节点启动时候需要把节点基本信息上报给注册中心
