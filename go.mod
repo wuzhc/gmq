@@ -1,4 +1,4 @@
-module gmq
+module github.com/wuzhc/gmq
 
 go 1.12
 

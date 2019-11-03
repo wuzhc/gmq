@@ -10,7 +10,6 @@ github.com/smartystreets/goconvey v1.6.4 h1:fv0U8FUIMPNf1L9lnHLvLhgicrIVChEkdzIK
 github.com/smartystreets/goconvey v1.6.4/go.mod h1:syvi0/a8iFYH4r/RixwvyeAJjdLS9QV7WQ/tjFTllLA=
 github.com/wuzhc/bbolt v1.3.3 h1:ALSpfJwpqTVlSmvVQVAd9DIlPjgyLtbr51s5LQjQeTY=
 github.com/wuzhc/bbolt v1.3.3/go.mod h1:iCpAGhM4WtUOCCNh+v059Ncl8pg8DnadwFYAwvE8SWc=
-github.com/wuzhc/gmq v0.0.0-20191102165451-5d9f9b5508c1 h1:DkxvCUDIcB+6T4p6QgVEGHuzMIX7TJiQUech/00G2jA=
 go.etcd.io/bbolt v1.3.3 h1:MUGmc65QhB3pIlaQ5bB4LwqSj6GIonVJXpZiaKNyaKk=
 go.etcd.io/bbolt v1.3.3/go.mod h1:IbVyRI1SCnLcuJnV2u8VeU0CEYM7e686BmAb1XKL+uU=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
