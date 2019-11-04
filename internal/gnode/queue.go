@@ -37,6 +37,8 @@ import (
 	"github.com/wuzhc/gmq/pkg/logs"
 )
 
+// flag(1-byte) + status(2-bytes) + msg_len(4-bytes) + msg(n-bytes)
+const MSG_FIX_LENGTH = 1 + 2 + 4
 const GROW_SIZE = 10 * 1024 * 1024
 const REWRITE_SIZE = 100 * 1024 * 1024
 
@@ -74,7 +76,7 @@ func NewQueue(name string, ctx *Context, topic *Topic) *queue {
 
 	initMmapSize := int(stat.Size())
 
-	// 新文件,扩展文件
+	// 初始文件为一个页大小
 	if initMmapSize == 0 {
 		if _, err := f.WriteAt([]byte{'0'}, int64(os.Getpagesize())-1); err != nil {
 			log.Fatalf("extend %v.queue failed, %v\n", queue.name, err)
@@ -105,11 +107,9 @@ func (q *queue) scan() ([]byte, error) {
 	q.Lock()
 	// q.LogDebug(fmt.Sprintf("scan.offset:%v read.offset:%v write.offset:%v", q.soffset, q.roffset, q.woffset))
 
-	// 是否需要重写文件大小
 	if q.soffset > REWRITE_SIZE {
 		q.rewrite()
 	}
-
 	if q.soffset == q.roffset {
 		q.Unlock()
 		return nil, errors.New("no message")
@@ -124,26 +124,27 @@ func (q *queue) scan() ([]byte, error) {
 	status := binary.BigEndian.Uint16(q.data[q.soffset+1 : q.soffset+3])
 	msgLen := int64(binary.BigEndian.Uint32(q.data[q.soffset+3 : q.soffset+7]))
 
-	// 当前的消息已被确认了,需要跳过到下一条消息
+	// 当前的消息已被确认了,继续扫描下一条消息
 	if status == MSG_STATUS_FIN {
-		q.soffset += 1 + 2 + 4 + msgLen
+		q.soffset += MSG_FIX_LENGTH + msgLen
 		q.Unlock()
-		return q.scan() // 递归调用,注意死锁问题
+		return q.scan()
 	}
 
-	// 消息未超时
 	expireTime := binary.BigEndian.Uint64(q.data[q.soffset+7 : q.soffset+15])
 	q.LogDebug(fmt.Sprintf("msg.expire:%v now:%v", expireTime, time.Now().Unix()))
+
+	// 队列中未有消息到期
 	if expireTime > uint64(time.Now().Unix()) {
 		q.Unlock()
 		return nil, errors.New("no message expire.")
 	}
 
-	// 消息已超时
+	// 已过期消息状态设置为已到期,已过期消息将重新添加到队列,等待再次被消费
 	binary.BigEndian.PutUint16(q.data[q.soffset+1:q.soffset+3], uint16(MSG_STATUS_EXPIRE))
 	msg := make([]byte, msgLen)
 	copy(msg, q.data[q.soffset+7:q.soffset+7+msgLen])
-	q.soffset += 1 + 2 + 4 + msgLen
+	q.soffset += MSG_FIX_LENGTH + msgLen
 
 	q.Unlock()
 	return msg, nil
@@ -171,7 +172,7 @@ func (q *queue) rewrite() error {
 	if (sz % pageSize) != 0 {
 		remainSize := int64(sz - sz/pageSize*pageSize)
 		if (q.filesize-q.woffset)-remainSize-int64(pageSize) > 0 {
-			// 文件剩余空间满足页的大小的倍数,可以缩小文件大小
+			// 文件剩余空间满足页的大小的倍数,继续缩小文件大小
 			size = size - remainSize
 		} else {
 			// 不满足,需要增加文件大小
@@ -179,7 +180,7 @@ func (q *queue) rewrite() error {
 		}
 	}
 
-	// 新文件,扩展文件
+	// 扩展文件
 	_, err = f.WriteAt([]byte{'0'}, size-1)
 	if err != nil {
 		return err
@@ -190,7 +191,7 @@ func (q *queue) rewrite() error {
 		return err
 	}
 
-	// 复制内容
+	// 将旧文件剩余数据迁移到新文件上
 	copy(data, q.data[q.soffset:])
 
 	q.file.Close()
@@ -207,12 +208,13 @@ func (q *queue) rewrite() error {
 	q.LogDebug(fmt.Sprintf("after rewrite, scan-offset:%v, read-offset:%v, write-offset:%v", q.soffset, q.roffset, q.woffset))
 	// data = nil
 
+	q.topic.waitAckMux.Lock()
 	for k, v := range q.topic.waitAckMap {
 		q.topic.waitAckMap[k] = v - q.soffset
 	}
+	q.topic.waitAckMux.Unlock()
 
 	q.soffset = 0
-
 	path := fmt.Sprintf("%s/%s.queue", q.ctx.Conf.DataSavePath, q.name)
 	if err := os.Rename(tempPath, path); err != nil {
 		return err
@@ -294,7 +296,7 @@ func (q *queue) read(isAutoAck bool) ([]byte, int64, error) {
 	msgLen := int64(binary.BigEndian.Uint32(q.data[q.roffset+3 : q.roffset+7]))
 	msg := make([]byte, msgLen)
 	copy(msg, q.data[q.roffset+7:q.roffset+7+msgLen])
-	q.roffset += 1 + 2 + 4 + msgLen
+	q.roffset += MSG_FIX_LENGTH + msgLen
 	atomic.AddInt64(&q.num, -1)
 
 	return msg, msgOffset, nil
@@ -306,7 +308,7 @@ func (q *queue) write(msg []byte) error {
 	defer q.Unlock()
 
 	msgLen := int64(len(msg))
-	if q.woffset+1+2+4+msgLen > q.filesize {
+	if q.woffset+MSG_FIX_LENGTH+msgLen > q.filesize {
 		// 文件大小不够,需要扩展文件
 		if err := q.grow(); err != nil {
 			return err
@@ -319,7 +321,7 @@ func (q *queue) write(msg []byte) error {
 	binary.BigEndian.PutUint32(q.data[q.woffset+3:q.woffset+7], uint32(msgLen))
 	copy(q.data[q.woffset+7:q.woffset+7+msgLen], msg)
 
-	q.woffset += 1 + 2 + 4 + msgLen
+	q.woffset += MSG_FIX_LENGTH + msgLen
 	atomic.AddInt64(&q.num, 1)
 
 	return nil
