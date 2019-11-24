@@ -25,15 +25,17 @@ const (
 
 type Topic struct {
 	name       string
+	mode       int
+	msgTTR     int
+	msgRetry   int
+	isAutoAck  bool
 	pushNum    int64
 	popNum     int64
 	startTime  time.Time
 	ctx        *Context
 	queue      *queue
 	closed     bool
-	mode       int
 	wg         utils.WaitGroupWrapper
-	isAutoAck  bool
 	dispatcher *Dispatcher
 	exitChan   chan struct{}
 	waitAckMap map[uint64]int64
@@ -64,6 +66,8 @@ func NewTopic(name string, ctx *Context) *Topic {
 	t := &Topic{
 		ctx:        ctx,
 		name:       name,
+		msgTTR:     MSG_MAX_TTR,
+		msgRetry:   MSG_MAX_RETRY,
 		mode:       ROUTE_KEY_MATCH_FUZZY,
 		isAutoAck:  true,
 		exitChan:   make(chan struct{}),
@@ -425,8 +429,9 @@ func (t *Topic) retrievalQueueExipreMsg() error {
 				break
 			}
 
+			// 消息重新消费次数超过阀值，则移动消息到死信队列
 			msg.Retry = msg.Retry + 1 // incr retry number
-			if msg.Retry > MSG_MAX_RETRY {
+			if msg.Retry > uint16(t.msgRetry) {
 				t.waitAckMux.Lock()
 				delete(t.waitAckMap, msg.Id)
 				t.waitAckMux.Unlock()
@@ -539,14 +544,32 @@ func (t *Topic) ack(msgId uint64) error {
 }
 
 // 设置topic信息
-func (t *Topic) set(isAutoAck int) error {
+func (t *Topic) set(configure *topicConfigure) error {
 	t.Lock()
 	defer t.Unlock()
 
-	if isAutoAck == 1 {
+	// 是否自动确认消息
+	if configure.isAutoAck == 1 {
 		t.isAutoAck = true
 	} else {
 		t.isAutoAck = false
+	}
+
+	// 消息路由模式
+	if configure.mode == ROUTE_KEY_MATCH_FULL {
+		t.mode = ROUTE_KEY_MATCH_FULL
+	} else if configure.mode == ROUTE_KEY_MATCH_FUZZY {
+		t.mode = ROUTE_KEY_MATCH_FUZZY
+	}
+
+	// 执行过期时间
+	if configure.msgTTR > 0 && configure.msgTTR < MSG_MAX_TTR {
+		t.msgTTR = configure.msgTTR
+	}
+
+	// 消息重试次数阀值
+	if configure.msgRetry > 0 && configure.msgRetry < MSG_MAX_RETRY {
+		t.msgRetry = configure.msgRetry
 	}
 
 	return nil

@@ -289,8 +289,8 @@ func (q *queue) read(isAutoAck bool) ([]byte, int64, error) {
 		binary.BigEndian.PutUint16(q.data[q.roffset+1:q.roffset+3], uint16(MSG_STATUS_FIN))
 	} else {
 		binary.BigEndian.PutUint16(q.data[q.roffset+1:q.roffset+3], uint16(MSG_STATUS_WAIT))
-		binary.BigEndian.PutUint64(q.data[q.roffset+7:q.roffset+15], uint64(time.Now().Unix())+uint64(q.ctx.Conf.MsgTTR))
-		// q.LogDebug(fmt.Sprintf("msg had been readed. exipire time is %v", uint64(time.Now().Unix())+uint64(q.ctx.Conf.MsgTTR)))
+		binary.BigEndian.PutUint64(q.data[q.roffset+7:q.roffset+15], uint64(time.Now().Unix())+uint64(q.topic.msgTTR))
+		// q.LogDebug(fmt.Sprintf("msg had been readed. exipire time is %v", uint64(time.Now().Unix())+uint64(q.topic.msgTTR)))
 	}
 
 	msgLen := int64(binary.BigEndian.Uint32(q.data[q.roffset+3 : q.roffset+7]))

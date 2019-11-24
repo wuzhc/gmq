@@ -284,22 +284,41 @@ func (c *TcpConn) DEAD(params [][]byte) error {
 	return nil
 }
 
+type topicConfigure struct {
+	isAutoAck int
+	msgTTR    int
+	msgRetry  int
+	mode      int
+}
+
 // 设置topic信息,目前只有isAutoAck选项
-// set <topic_name> <isAutoAck>
+// set <topic_name> <isAutoAck> <mode> <msg_ttr> <msg_retry>
 func (c *TcpConn) SET(params [][]byte) error {
 	if len(params) != 2 {
 		return errors.New("ack params is error")
 	}
 
 	topic := string(params[0])
-	isAutoAck, _ := strconv.Atoi(string(params[1]))
-
-	if err := c.serv.ctx.Dispatcher.set(topic, isAutoAck); err != nil {
-		c.RespErr(err)
+	if len(topic) == 0 {
+		c.RespErr(fmt.Errorf("topic is empty"))
 		return nil
 	}
 
-	c.RespRes("ok")
+	configure := &topicConfigure{}
+	configure.isAutoAck, _ = strconv.Atoi(string(params[1]))
+	configure.mode, _ = strconv.Atoi(string(params[2]))
+	configure.msgTTR, _ = strconv.Atoi(string(params[3]))
+	configure.msgRetry, _ = strconv.Atoi(string(params[4]))
+
+	err := c.serv.ctx.Dispatcher.set(topic, configure)
+	configure = nil
+
+	if err != nil {
+		c.RespErr(err)
+	} else {
+		c.RespRes("ok")
+	}
+
 	return nil
 }
 

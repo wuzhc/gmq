@@ -124,18 +124,25 @@ func (h *HttpApi) Ack(c *HttpServContext) {
 	}
 }
 
-// curl http://127.0.0.1:9504/pop?topic=xxx
-// 消费任务
-func (h *HttpApi) Set(c *HttpServContext) {
-	isAutoAck := c.GetInt("isAutoAck")
+// curl http://127.0.0.1:9504/config?topic=xxx&isAuthoAck=1&mode=1&msgTTR=30&msgRetry=5
+// 配置topic
+func (h *HttpApi) Config(c *HttpServContext) {
 	topic := c.Get("topic")
 	if len(topic) == 0 {
 		c.JsonErr(errors.New("topic is empty"))
 		return
 	}
 
-	t := h.ctx.Dispatcher.GetTopic(topic)
-	if err := t.set(isAutoAck); err != nil {
+	configure := &topicConfigure{
+		isAutoAck: c.GetInt("isAutoAck"),
+		mode:      c.GetInt("mode"),
+		msgTTR:    c.GetInt("msgTTR"),
+		msgRetry:  c.GetInt("msgRetry"),
+	}
+
+	err := h.ctx.Dispatcher.set(topic, configure)
+	configure = nil
+	if err != nil {
 		c.JsonErr(err)
 	} else {
 		c.JsonSuccess("success")
@@ -241,11 +248,18 @@ func (h *HttpApi) SetIsAutoAck(c *HttpServContext) {
 	} else {
 		vv = 1
 	}
-	if err := topic.set(vv); err != nil {
+
+	configure := &topicConfigure{
+		isAutoAck: vv,
+	}
+
+	if err := topic.set(configure); err != nil {
+		configure = nil
 		c.JsonErr(err)
 		return
 	}
 
+	configure = nil
 	c.JsonSuccess("success")
 }
 

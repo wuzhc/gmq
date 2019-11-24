@@ -289,9 +289,9 @@ func (d *Dispatcher) ack(name string, msgId uint64) error {
 }
 
 // 设置topic配置
-func (d *Dispatcher) set(name string, isAutoAck int) error {
+func (d *Dispatcher) set(name string, configure *topicConfigure) error {
 	topic := d.GetTopic(name)
-	return topic.set(isAutoAck)
+	return topic.set(configure)
 }
 
 func (d *Dispatcher) declareQueue(queueName, bindKey string) error {
