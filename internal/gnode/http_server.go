@@ -1,11 +1,13 @@
 package gnode
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/wuzhc/gmq/pkg/logs"
 )
@@ -37,10 +39,12 @@ func (s *HttpServ) Run() {
 	mux.handle("/push", api.Push)
 	mux.handle("/ack", api.Ack)
 	mux.handle("/ping", api.Ping)
+	mux.handle("/declareQueue", api.DeclareQueue)
 	mux.handle("/exitTopic", api.ExitTopic)
 	mux.handle("/setIsAutoAck", api.SetIsAutoAck)
 	mux.handle("/getTopicStat", api.GetTopicStat)
 	mux.handle("/getAllTopicStat", api.GetAllTopicStat)
+	mux.handle("/getQueuesByTopic", api.GetQueuesByTopic)
 
 	addr := s.ctx.Conf.HttpServAddr
 	serv := &http.Server{
@@ -48,9 +52,15 @@ func (s *HttpServ) Run() {
 		Handler: handlerMux(mux),
 	}
 
+	processed := make(chan struct{})
 	go func() {
 		<-s.ctx.Gnode.exitChan
-		serv.Shutdown(nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := serv.Shutdown(ctx); err != nil {
+			s.LogError(fmt.Sprintf("shutdown server failed, %s", err))
+		}
+		close(processed)
 	}()
 
 	var err error
@@ -66,7 +76,10 @@ func (s *HttpServ) Run() {
 
 	if err != nil {
 		s.LogDebug(err)
+		return
 	}
+
+	<-processed
 }
 
 func handlerMux(mux *HttpServMux) http.Handler {

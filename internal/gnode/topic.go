@@ -33,18 +33,26 @@ type Topic struct {
 	dispatcher *Dispatcher
 	exitChan   chan struct{}
 	waitAckMap map[uint64]int64
+	queues     map[string]*queue
 	waitAckMux sync.Mutex
+	queueMux   sync.Mutex
 	sync.Mutex
 }
 
 type TopicMeta struct {
-	PopNum      int64 `json:"pop_num"`
-	PushNum     int64 `json:"push_num"`
-	QueueNum    int64 `json:"queue_num"`
-	WriteOffset int64 `json:"write_offset"`
-	ReadOffset  int64 `json:"read_offset"`
-	ScanOffset  int64 `json:"scan_offset"`
-	IsAutoAck   bool  `json:"is_auto_ack"`
+	PopNum    int64       `json:"pop_num"`
+	PushNum   int64       `json:"push_num"`
+	IsAutoAck bool        `json:"is_auto_ack"`
+	Queues    []QueueMeta `json:"queues"`
+}
+
+type QueueMeta struct {
+	Num         int64  `json:"queue_num"`
+	Name        string `json:"queue_name"`
+	BindKey     string `json:"bind_key"`
+	WriteOffset int64  `json:"write_offset"`
+	ReadOffset  int64  `json:"read_offset"`
+	ScanOffset  int64  `json:"scan_offset"`
 }
 
 func NewTopic(name string, ctx *Context) *Topic {
@@ -56,16 +64,15 @@ func NewTopic(name string, ctx *Context) *Topic {
 		waitAckMap: make(map[uint64]int64),
 		dispatcher: ctx.Dispatcher,
 		startTime:  time.Now(),
+		queues:     make(map[string]*queue),
 	}
 
-	t.queue = NewQueue(name, ctx, t)
 	t.init()
 	return t
 }
 
 // 初始化
 func (t *Topic) init() {
-	// 初始化bucket
 	err := t.dispatcher.db.Update(func(tx *bolt.Tx) error {
 		if _, err := tx.CreateBucketIfNotExists([]byte(t.name)); err != nil {
 			return errors.New(fmt.Sprintf("create bucket: %s", err))
@@ -81,7 +88,6 @@ func (t *Topic) init() {
 
 	t.LogInfo(fmt.Sprintf("loading topic.%s metadata.", t.name))
 
-	// 初始化队列读写偏移量
 	fd, err := os.OpenFile(fmt.Sprintf("%s/%s.meta", t.ctx.Conf.DataSavePath, t.name), os.O_RDONLY, 0600)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -102,13 +108,24 @@ func (t *Topic) init() {
 		return
 	}
 
+	// retore topic meta data
 	t.popNum = meta.PopNum
 	t.pushNum = meta.PushNum
 	t.isAutoAck = meta.IsAutoAck
-	t.queue.num = meta.QueueNum
-	t.queue.woffset = meta.WriteOffset
-	t.queue.roffset = meta.ReadOffset
-	t.queue.soffset = meta.ScanOffset
+
+	t.queueMux.Lock()
+	defer t.queueMux.Unlock()
+
+	// restore queue meta data
+	for _, q := range meta.Queues {
+		queue := NewQueue(q.Name, t.ctx, t)
+		queue.woffset = q.WriteOffset
+		queue.roffset = q.ReadOffset
+		queue.soffset = q.ScanOffset
+		queue.num = q.Num
+		queue.name = q.Name
+		t.queues[q.BindKey] = queue
+	}
 }
 
 // 退出topic
@@ -126,14 +143,27 @@ func (t *Topic) exit() {
 	}
 	defer fd.Close()
 
+	// save all queue meta
+	t.queueMux.Lock()
+	defer t.queueMux.Unlock()
+
+	var queues []QueueMeta
+	for k, q := range t.queues {
+		queues = append(queues, QueueMeta{
+			Num:         q.num,
+			Name:        q.name,
+			BindKey:     k,
+			WriteOffset: q.woffset,
+			ReadOffset:  q.roffset,
+			ScanOffset:  q.soffset,
+		})
+	}
+
 	meta := TopicMeta{
-		PopNum:      t.popNum,
-		PushNum:     t.pushNum,
-		QueueNum:    t.queue.num,
-		WriteOffset: t.queue.woffset,
-		ReadOffset:  t.queue.roffset,
-		ScanOffset:  t.queue.soffset,
-		IsAutoAck:   t.isAutoAck,
+		PopNum:    t.popNum,
+		PushNum:   t.pushNum,
+		IsAutoAck: t.isAutoAck,
+		Queues:    queues,
 	}
 	data, err := json.Marshal(meta)
 	if err != nil {
@@ -156,8 +186,17 @@ func (t *Topic) push(msg *Msg) error {
 		msg.Expire = uint64(msg.Delay) + uint64(time.Now().Unix())
 		return t.pushMsgToBucket(msg)
 	}
-	if err := t.queue.write(Encode(msg)); err != nil {
-		return err
+
+	queues := t.getQueuesByRouteKey(msg.RouteKey)
+	if len(queues) == 0 {
+		t.LogError(msg)
+		return fmt.Errorf("routeKey:%s has not bound queue,please declare queue.", msg.RouteKey)
+	}
+
+	for _, q := range queues {
+		if err := q.write(Encode(msg)); err != nil {
+			return err
+		}
 	}
 
 	atomic.AddInt64(&t.pushNum, 1)
@@ -321,10 +360,18 @@ func (t *Topic) retrievalBucketExpireMsg() error {
 				break
 			}
 
-			if err := t.queue.write(data); err != nil {
-				t.LogError(err)
-				break
+			queues := t.getQueuesByRouteKey(msg.RouteKey)
+			if len(queues) == 0 {
+				t.LogError(fmt.Errorf("routeKey %s can't find the queue", msg.RouteKey))
+				continue
 			}
+			for _, queue := range queues {
+				if err := queue.write(data); err != nil {
+					t.LogError(err)
+					break
+				}
+			}
+
 			if err := bucket.Delete(key); err != nil {
 				t.LogError(err)
 				break
@@ -356,44 +403,46 @@ func (t *Topic) retrievalQueueExipreMsg() error {
 	}
 
 	num := 0
-	for {
-		data, err := t.queue.scan()
-		if err != nil {
-			t.LogDebug(err)
-			break
-		}
+	for _, queue := range t.queues {
+		for {
+			data, err := queue.scan()
+			if err != nil {
+				t.LogDebug(err)
+				break
+			}
 
-		msg := Decode(data)
-		if msg.Id == 0 {
-			msg = nil
-			break
-		}
+			msg := Decode(data)
+			if msg.Id == 0 {
+				msg = nil
+				break
+			}
 
-		msg.Retry = msg.Retry + 1 // incr retry number
-		if msg.Retry > MSG_MAX_RETRY {
-			t.waitAckMux.Lock()
-			delete(t.waitAckMap, msg.Id)
-			t.waitAckMux.Unlock()
-			t.LogTrace(fmt.Sprintf("msg.Id %v has been added to dead queue.", msg.Id))
-			if err := t.pushMsgToDeadBucket(msg); err != nil {
+			msg.Retry = msg.Retry + 1 // incr retry number
+			if msg.Retry > MSG_MAX_RETRY {
+				t.waitAckMux.Lock()
+				delete(t.waitAckMap, msg.Id)
+				t.waitAckMux.Unlock()
+				t.LogTrace(fmt.Sprintf("msg.Id %v has been added to dead queue.", msg.Id))
+				if err := t.pushMsgToDeadBucket(msg); err != nil {
+					t.LogError(err)
+					break
+				} else {
+					continue
+				}
+			}
+
+			// 消息到期,重新添加到队列等待再次被消费
+			if err := queue.write(Encode(msg)); err != nil {
 				t.LogError(err)
 				break
 			} else {
-				continue
+				t.LogDebug(fmt.Sprintf("msg.Id %v has expired and will be consumed again.", msg.Id))
+				t.waitAckMux.Lock()
+				delete(t.waitAckMap, msg.Id)
+				t.waitAckMux.Unlock()
+				atomic.AddInt64(&t.pushNum, 1)
+				num++
 			}
-		}
-
-		// 消息到期,重新添加到队列等待再次被消费
-		if err := t.queue.write(Encode(msg)); err != nil {
-			t.LogError(err)
-			break
-		} else {
-			t.LogDebug(fmt.Sprintf("msg.Id %v has expired and will be consumed again.", msg.Id))
-			t.waitAckMux.Lock()
-			delete(t.waitAckMap, msg.Id)
-			t.waitAckMux.Unlock()
-			atomic.AddInt64(&t.pushNum, 1)
-			num++
 		}
 	}
 
@@ -405,8 +454,13 @@ func (t *Topic) retrievalQueueExipreMsg() error {
 }
 
 // 消息消费
-func (t *Topic) pop() (*Msg, error) {
-	data, index, err := t.queue.read(t.isAutoAck)
+func (t *Topic) pop(bindKey string) (*Msg, error) {
+	queue := t.getQueueByBindKey(bindKey)
+	if queue == nil {
+		return nil, fmt.Errorf("bindKey:%s has not bound to queue", bindKey)
+	}
+
+	data, index, err := queue.read(t.isAutoAck)
 	if err != nil {
 		return nil, err
 	}
@@ -488,6 +542,48 @@ func (t *Topic) set(isAutoAck int) error {
 	}
 
 	return nil
+}
+
+// 声明队列，绑定key必须是唯一值
+// 队列名称为<topic_name>_<bind_key>
+func (t *Topic) delcareQueue(bindKey string) error {
+	queue := t.getQueueByBindKey(bindKey)
+	if queue != nil {
+		return fmt.Errorf("bindKey %s has exist.", bindKey)
+	}
+
+	t.queueMux.Lock()
+	defer t.queueMux.Unlock()
+
+	queueName := fmt.Sprintf("%s_%s", t.name, bindKey)
+	t.queues[bindKey] = NewQueue(queueName, t.ctx, t)
+	return nil
+}
+
+// 根据key获取队列，key匹配支持正则
+func (t *Topic) getQueuesByRouteKey(key string) []*queue {
+	t.queueMux.Lock()
+	defer t.queueMux.Unlock()
+
+	var queues []*queue
+	for k, v := range t.queues {
+		if k == key {
+			queues = append(queues, v)
+		}
+	}
+
+	return queues
+}
+
+func (t *Topic) getQueueByBindKey(key string) *queue {
+	t.queueMux.Lock()
+	defer t.queueMux.Unlock()
+
+	if q, ok := t.queues[key]; ok {
+		return q
+	} else {
+		return nil
+	}
 }
 
 // 获取bucket堆积数量

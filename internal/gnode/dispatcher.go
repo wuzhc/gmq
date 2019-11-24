@@ -235,12 +235,13 @@ func (d *Dispatcher) resizePool(topicNum int, workCh chan *Topic, closeCh chan i
 
 // 消息推送
 // 每一条消息都需要dispatcher统一分配msg.Id
-func (d *Dispatcher) push(name string, data []byte, delay int) (uint64, error) {
+func (d *Dispatcher) push(name string, key string, data []byte, delay int) (uint64, error) {
 	msgId := d.snowflake.Generate()
 	msg := &Msg{}
 	msg.Id = msgId
 	msg.Delay = uint32(delay)
 	msg.Body = data
+	msg.RouteKey = key
 
 	topic := d.GetTopic(name)
 	err := topic.push(msg)
@@ -266,9 +267,9 @@ func (d *Dispatcher) mpush(name string, msgs [][]byte, delays []int) ([]uint64, 
 }
 
 // 消息消费
-func (d *Dispatcher) pop(name string) (*Msg, error) {
+func (d *Dispatcher) pop(name, routeKey string) (*Msg, error) {
 	topic := d.GetTopic(name)
-	return topic.pop()
+	return topic.pop(routeKey)
 }
 
 // 死信队列
@@ -291,6 +292,11 @@ func (d *Dispatcher) ack(name string, msgId uint64) error {
 func (d *Dispatcher) set(name string, isAutoAck int) error {
 	topic := d.GetTopic(name)
 	return topic.set(isAutoAck)
+}
+
+func (d *Dispatcher) declareQueue(name, bindKey string) error {
+	topic := d.GetTopic(name)
+	return topic.delcareQueue(bindKey)
 }
 
 func (d *Dispatcher) LogError(msg ...interface{}) {

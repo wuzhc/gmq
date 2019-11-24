@@ -32,14 +32,16 @@ func (h *HttpApi) Pop(c *HttpServContext) {
 		c.JsonErr(errors.New("topic is empty"))
 		return
 	}
+	bindKey := c.Get("bindKey")
+	if len(bindKey) == 0 {
+		c.JsonErr(errors.New("bindKey is empty"))
+		return
+	}
 
-	t := h.ctx.Dispatcher.GetTopic(topic)
-	msg, err := t.pop()
-	defer func() {
-		msg = nil
-	}()
+	msg, err := h.ctx.Dispatcher.pop(topic, bindKey)
 	if err != nil {
 		c.JsonErr(err)
+		msg = nil
 		return
 	}
 
@@ -48,11 +50,35 @@ func (h *HttpApi) Pop(c *HttpServContext) {
 		Body:  string(msg.Body),
 		Retry: msg.Retry,
 	}
+
 	c.JsonData(data)
+	msg = nil
 	return
 }
 
-// curl -d 'data={"body":"this is a job","topic":"game_1","delay":20}' 'http://127.0.0.1:9504/push'
+// curl http://127.0.0.1:9504/declareQueue?topic=xxx&bindKey=kkk
+// 声明队列
+func (h *HttpApi) DeclareQueue(c *HttpServContext) {
+	topic := c.Get("topic")
+	if len(topic) == 0 {
+		c.JsonErr(errors.New("topic is empty"))
+		return
+	}
+	bindKey := c.Get("bindKey")
+	if len(bindKey) == 0 {
+		c.JsonErr(errors.New("bindKey is empty"))
+		return
+	}
+
+	if err := h.ctx.Dispatcher.declareQueue(topic, bindKey); err != nil {
+		c.JsonErr(err)
+		return
+	}
+
+	c.JsonSuccess("ok")
+}
+
+// curl -d 'data={"body":"this is a job","topic":"xxx","delay":20,"route_key":"xxx"}' 'http://127.0.0.1:9504/push'
 // 推送消息
 func (h *HttpApi) Push(c *HttpServContext) {
 	data := c.Post("data")
@@ -67,7 +93,7 @@ func (h *HttpApi) Push(c *HttpServContext) {
 		return
 	}
 
-	msgId, err := h.ctx.Dispatcher.push(msg.Topic, []byte(msg.Body), msg.Delay)
+	msgId, err := h.ctx.Dispatcher.push(msg.Topic, msg.RouteKey, []byte(msg.Body), msg.Delay)
 	if err != nil {
 		c.JsonErr(err)
 		return
@@ -221,6 +247,22 @@ func (h *HttpApi) SetIsAutoAck(c *HttpServContext) {
 	}
 
 	c.JsonSuccess("success")
+}
+
+func (h *HttpApi) GetQueuesByTopic(c *HttpServContext) {
+	name := c.Get("topic")
+	if len(name) == 0 {
+		c.JsonErr(errors.New("topic is empty"))
+		return
+	}
+
+	data := make(map[string]string)
+	topic := h.ctx.Dispatcher.GetTopic(name)
+	for k, v := range topic.queues {
+		data[k] = v.name
+	}
+
+	c.JsonData(data)
 }
 
 // 心跳接口

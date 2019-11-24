@@ -43,6 +43,7 @@ type TcpConn struct {
 func (c *TcpConn) Handle() {
 	defer c.LogInfo("tcp connection handle exit.")
 
+	// todo make be error
 	go func() {
 		select {
 		case <-c.serv.exitChan:
@@ -100,6 +101,8 @@ func (c *TcpConn) Handle() {
 			err = c.DEAD(params)
 		case bytes.Equal(cmd, []byte("set")):
 			err = c.SET(params)
+		case bytes.Equal(cmd, []byte("queue")):
+			err = c.DECLAREQUEUE(params) // declare queue
 		default:
 			err = errors.New(fmt.Sprintf("unkown cmd: %s", cmd))
 		}
@@ -117,15 +120,16 @@ func (c *TcpConn) Handle() {
 	close(c.exitChan)
 }
 
-// pub <topic_name> <delay-time>
+// pub <topic_name> <route_key> <delay-time>
 // [ 4-byte size in bytes ][ N-byte binary data ]
 func (c *TcpConn) PUB(params [][]byte) error {
-	if len(params) != 2 {
+	if len(params) != 3 {
 		return errors.New("pub.params is error")
 	}
 
 	topic := string(params[0])
-	delay, _ := strconv.Atoi(string(params[1]))
+	routeKey := string(params[1])
+	delay, _ := strconv.Atoi(string(params[2]))
 	if delay > MSG_MAX_DELAY {
 		return errors.New("pub.delay exceeding the maximum")
 	}
@@ -146,7 +150,7 @@ func (c *TcpConn) PUB(params [][]byte) error {
 	cb := make([]byte, len(body))
 	copy(cb, body)
 
-	msgId, err := c.serv.ctx.Dispatcher.push(topic, cb, delay)
+	msgId, err := c.serv.ctx.Dispatcher.push(topic, routeKey, cb, delay)
 	if err != nil {
 		c.RespErr(err)
 	} else {
@@ -219,17 +223,15 @@ func (c *TcpConn) MPUB(params [][]byte) error {
 	return nil
 }
 
-// pop <topic_name>
+// pop <topic_name> <bind_key>
 func (c *TcpConn) POP(params [][]byte) error {
-	if len(params) != 1 {
+	if len(params) != 2 {
 		return errors.New("pop params is error")
 	}
 
 	topic := string(params[0])
-	msg, err := c.serv.ctx.Dispatcher.pop(topic)
-	defer func() {
-		msg = nil
-	}()
+	bindKey := string(params[1])
+	msg, err := c.serv.ctx.Dispatcher.pop(topic, bindKey)
 
 	if err != nil {
 		c.RespErr(err)
@@ -237,6 +239,7 @@ func (c *TcpConn) POP(params [][]byte) error {
 		c.RespMsg(msg)
 	}
 
+	msg = nil
 	return nil
 }
 
@@ -282,7 +285,7 @@ func (c *TcpConn) DEAD(params [][]byte) error {
 }
 
 // 设置topic信息,目前只有isAutoAck选项
-// set <topic> <isAutoAck>
+// set <topic_name> <isAutoAck>
 func (c *TcpConn) SET(params [][]byte) error {
 	if len(params) != 2 {
 		return errors.New("ack params is error")
@@ -292,6 +295,33 @@ func (c *TcpConn) SET(params [][]byte) error {
 	isAutoAck, _ := strconv.Atoi(string(params[1]))
 
 	if err := c.serv.ctx.Dispatcher.set(topic, isAutoAck); err != nil {
+		c.RespErr(err)
+		return nil
+	}
+
+	c.RespRes("ok")
+	return nil
+}
+
+// declare queue
+// queue <topic_name> <bind_key>
+func (c *TcpConn) DECLAREQUEUE(params [][]byte) error {
+	if len(params) != 2 {
+		return errors.New("queue params is error")
+	}
+
+	topic := string(params[0])
+	if len(topic) == 0 {
+		c.RespErr(fmt.Errorf("topic name is empty"))
+		return nil
+	}
+	bindKey := string(params[2])
+	if len(bindKey) == 0 {
+		c.RespErr(fmt.Errorf("bindKey is empty"))
+		return nil
+	}
+
+	if err := c.serv.ctx.Dispatcher.declareQueue(topic, bindKey); err != nil {
 		c.RespErr(err)
 		return nil
 	}

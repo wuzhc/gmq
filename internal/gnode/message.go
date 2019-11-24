@@ -27,18 +27,20 @@ type RespMsgData struct {
 }
 
 type RecvMsgData struct {
-	Body  string `json:"body"`
-	Topic string `json:"topic"`
-	Delay int    `json:"delay"`
+	Body     string `json:"body"`
+	Topic    string `json:"topic"`
+	Delay    int    `json:"delay"`
+	RouteKey string `json:"route_key"`
 }
 
 // 消息结构
 type Msg struct {
-	Id     uint64
-	Retry  uint16
-	Delay  uint32
-	Expire uint64
-	Body   []byte
+	Id       uint64
+	Retry    uint16
+	Delay    uint32
+	Expire   uint64
+	Body     []byte
+	RouteKey string
 }
 
 type MsgIndex struct {
