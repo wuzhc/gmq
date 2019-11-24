@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"regexp"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,7 +18,9 @@ import (
 )
 
 const (
-	DEAD_FLAG = "_failure"
+	DEAD_FLAG             = "_failure"
+	ROUTE_KEY_MATCH_FULL  = 1
+	ROUTE_KEY_MATCH_FUZZY = 2
 )
 
 type Topic struct {
@@ -28,6 +31,7 @@ type Topic struct {
 	ctx        *Context
 	queue      *queue
 	closed     bool
+	mode       int
 	wg         utils.WaitGroupWrapper
 	isAutoAck  bool
 	dispatcher *Dispatcher
@@ -40,6 +44,7 @@ type Topic struct {
 }
 
 type TopicMeta struct {
+	Mode      int         `json:"mode"`
 	PopNum    int64       `json:"pop_num"`
 	PushNum   int64       `json:"push_num"`
 	IsAutoAck bool        `json:"is_auto_ack"`
@@ -59,6 +64,7 @@ func NewTopic(name string, ctx *Context) *Topic {
 	t := &Topic{
 		ctx:        ctx,
 		name:       name,
+		mode:       ROUTE_KEY_MATCH_FUZZY,
 		isAutoAck:  true,
 		exitChan:   make(chan struct{}),
 		waitAckMap: make(map[uint64]int64),
@@ -109,6 +115,7 @@ func (t *Topic) init() {
 	}
 
 	// retore topic meta data
+	t.mode = meta.Mode
 	t.popNum = meta.PopNum
 	t.pushNum = meta.PushNum
 	t.isAutoAck = meta.IsAutoAck
@@ -164,6 +171,7 @@ func (t *Topic) exit() {
 		PushNum:   t.pushNum,
 		IsAutoAck: t.isAutoAck,
 		Queues:    queues,
+		Mode:      t.mode,
 	}
 	data, err := json.Marshal(meta)
 	if err != nil {
@@ -457,7 +465,7 @@ func (t *Topic) retrievalQueueExipreMsg() error {
 func (t *Topic) pop(bindKey string) (*Msg, error) {
 	queue := t.getQueueByBindKey(bindKey)
 	if queue == nil {
-		return nil, fmt.Errorf("bindKey:%s has not bound to queue", bindKey)
+		return nil, fmt.Errorf("bindKey:%s can't match queue", bindKey)
 	}
 
 	data, index, err := queue.read(t.isAutoAck)
@@ -560,15 +568,21 @@ func (t *Topic) delcareQueue(bindKey string) error {
 	return nil
 }
 
-// 根据key获取队列，key匹配支持正则
+// 根据key获取队列，key匹配支持全匹配和模糊匹配
 func (t *Topic) getQueuesByRouteKey(key string) []*queue {
 	t.queueMux.Lock()
 	defer t.queueMux.Unlock()
 
 	var queues []*queue
 	for k, v := range t.queues {
-		if k == key {
-			queues = append(queues, v)
+		if t.mode == ROUTE_KEY_MATCH_FULL {
+			if k == key {
+				queues = append(queues, v)
+			}
+		} else {
+			if ok, _ := regexp.MatchString(key, k); ok {
+				queues = append(queues, v)
+			}
 		}
 	}
 

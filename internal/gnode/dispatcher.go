@@ -294,8 +294,8 @@ func (d *Dispatcher) set(name string, isAutoAck int) error {
 	return topic.set(isAutoAck)
 }
 
-func (d *Dispatcher) declareQueue(name, bindKey string) error {
-	topic := d.GetTopic(name)
+func (d *Dispatcher) declareQueue(queueName, bindKey string) error {
+	topic := d.GetTopic(queueName)
 	return topic.delcareQueue(bindKey)
 }
 

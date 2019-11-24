@@ -315,7 +315,7 @@ func (c *TcpConn) DECLAREQUEUE(params [][]byte) error {
 		c.RespErr(fmt.Errorf("topic name is empty"))
 		return nil
 	}
-	bindKey := string(params[2])
+	bindKey := string(params[1])
 	if len(bindKey) == 0 {
 		c.RespErr(fmt.Errorf("bindKey is empty"))
 		return nil
