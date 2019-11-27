@@ -20,7 +20,6 @@ type program struct {
 
 func (p *program) Start(s service.Service) error {
 	// Start should not block. Do the actual work async.
-
 	cfg := gnode.NewGnodeConfig()
 	p.gn = gnode.New(cfg)
 

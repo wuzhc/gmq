@@ -161,8 +161,8 @@ func (c *TcpConn) PUB(params [][]byte) error {
 }
 
 // pub <topic_name> <num>
-// <delay-time>[ 4-byte size in bytes ][ N-byte binary data ]
-// <delay-time>[ 4-byte size in bytes ][ N-byte binary data ]
+// <msg.len> <[]byte({"delay":1,"body":"xxx","topic":"xxx","routeKey":"xxx"})>
+// <msg.len> <[]byte({"delay":1,"body":"xxx","topic":"xxx","routeKey":"xxx"})>
 func (c *TcpConn) MPUB(params [][]byte) error {
 	var err error
 
@@ -176,41 +176,34 @@ func (c *TcpConn) MPUB(params [][]byte) error {
 		return errors.New(fmt.Sprintf("number of push must be between 1 and %v", c.serv.ctx.Conf.MsgMaxPushNum))
 	}
 
-	delays := make([]int, num, num)
-	msgs := make([][]byte, num, num)
-	defer func() {
-		delays = nil
-		msgs = nil
-	}()
-
+	msgIds := make([]uint64, num)
 	for i := 0; i < num; i++ {
-		delayBuf := make([]byte, 4)
-		_, err = io.ReadFull(c.reader, delayBuf)
+		msglenBuf := make([]byte, 4)
+		_, err = io.ReadFull(c.reader, msglenBuf)
 		if err != nil {
-			return errors.New(fmt.Sprintf("read delay failed, %v", err))
+			return fmt.Errorf("read msg.length failed, %v", err)
 		}
 
-		bodylenBuf := make([]byte, 4)
-		_, err = io.ReadFull(c.reader, bodylenBuf)
+		msglen := int(binary.BigEndian.Uint32(msglenBuf))
+		msg := make([]byte, msglen)
+		_, err = io.ReadFull(c.reader, msg)
 		if err != nil {
-			return errors.New(fmt.Sprintf("read bodylen failed, %v", err))
+			return fmt.Errorf("read body failed, %v", err)
 		}
 
-		bodylen := int(binary.BigEndian.Uint32(bodylenBuf))
-		body := make([]byte, bodylen)
-		_, err = io.ReadFull(c.reader, body)
-		if err != nil {
-			return errors.New(fmt.Sprintf("read body failed, %v", err))
+		var recvMsg RecvMsgData
+		if err := json.Unmarshal(msg, &recvMsg); err != nil {
+			c.RespErr(fmt.Errorf("decode msg failed, %s", err))
 		}
 
-		delays[i] = int(binary.BigEndian.Uint32(delayBuf))
-		msgs[i] = body
-	}
+		msgId, err := c.serv.ctx.Dispatcher.push(topic, recvMsg.RouteKey, []byte(recvMsg.Body), recvMsg.Delay)
+		if err != nil {
+			c.RespErr(err)
+		}
 
-	msgIds, err := c.serv.ctx.Dispatcher.mpush(topic, msgs, delays)
-	if err != nil {
-		c.RespErr(err)
-		return nil
+		msgIds[i] = msgId
+		msg = nil
+		msglenBuf = nil
 	}
 
 	nbytes, err := json.Marshal(msgIds)
@@ -245,14 +238,15 @@ func (c *TcpConn) POP(params [][]byte) error {
 
 // ack <message_id>
 func (c *TcpConn) ACK(params [][]byte) error {
-	if len(params) != 2 {
+	if len(params) != 3 {
 		return errors.New("ack params is error")
 	}
 
 	msgId, _ := strconv.ParseInt(string(params[0]), 10, 64)
 	topic := string(params[1])
+	bindKey := string(params[2])
 
-	if err := c.serv.ctx.Dispatcher.ack(topic, uint64(msgId)); err != nil {
+	if err := c.serv.ctx.Dispatcher.ack(topic, uint64(msgId), bindKey); err != nil {
 		c.RespErr(err)
 	} else {
 		c.RespRes("ok")

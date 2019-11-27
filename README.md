@@ -1,6 +1,19 @@
 > gmq是一个轻量级的消息中间件;第一个版本的gmq是基于redis实现,因为功能和存储严重依赖于redis特性,使得之后的优化受到限制,所以在最新的版本不再使用`redis`,完全移除对redis依赖;最新版本的消息存储部分使用文件存储,并使用内存映射文件的技术,使得gmq访问磁盘上的数据文件更加高效;
 > 如果对于redis版本的gmq有兴趣,可以参考[gmq-redis](https://github.com/wuzhc/gmq-redis)
 
+## 功能
+- 支持延迟消息
+- 类似rabbitmq路由模式，支持路由键全匹配和模糊匹配，根据路由键将消息路由到指定队列
+- 消息集群，使用etcd发现注册服务
+- 支持消息持久化
+- 支持消息确认
+- 支持消息重试机制
+- 支持死信队列
+- 提供tls可选安全加密
+- 提供http api接口
+- 提供web管理界面
+- 内置了pprof调试工具
+
 ## 1. 架构
 gmq是一个简单的推拉模型,基本架构如下:
 ![架构](https://gitee.com/wuzhc123/zcnote/raw/master/images/gmq/gmq%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1.png)
@@ -19,9 +32,12 @@ gmq是一个简单的推拉模型,基本架构如下:
 - 6. topic将消息存储于queue队列中,等待客户端消费
 
 ## 2. 安装运行
+gmq节点启动需要向etcd注册信息，所以需要先启动etcd
+
+
 ### 2.1 安装gmq
 ```bash
-git clone -b gmq-dev-v3  https://github.com/wuzhc/gmq.git
+git clone -b gmq-dev-v3  https://github.com/wuzhc/gmq.git 
 cd gmq
 export GO111MODULE=on 
 export GOPROXY=https://goproxy.io

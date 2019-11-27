@@ -13,18 +13,19 @@ type HttpApi struct {
 }
 
 type topicData struct {
-	Name       string `json:"name"`
-	PopNum     int64  `json:"pop_num"`
-	PushNum    int64  `json:"push_num"`
-	QueueNum   int64  `json:"queue_num"`
-	DelayNum   int    `json:"delay_num"`
-	WaitAckNum int    `json:"wait_ack_num"`
-	DeadNum    int    `json:"dead_num"`
-	StartTime  string `json:"start_time"`
-	IsAutoAck  bool   `json:"is_auto_ack"`
+	Name        string `json:"name"`
+	PopNum      int64  `json:"pop_num"`
+	PushNum     int64  `json:"push_num"`
+	QueueMsgNum int64  `json:"queue_msg_num"`
+	QueueNum    int    `json:"queue_num"`
+	DelayNum    int    `json:"delay_num"`
+	WaitAckNum  int    `json:"wait_ack_num"`
+	DeadNum     int    `json:"dead_num"`
+	StartTime   string `json:"start_time"`
+	IsAutoAck   bool   `json:"is_auto_ack"`
 }
 
-// curl http://127.0.0.1:9504/pop?topic=xxx
+// curl http://127.0.0.1:9504/pop?topic=xxx&bindKey=xxx
 // 消费任务
 func (h *HttpApi) Pop(c *HttpServContext) {
 	topic := c.Get("topic")
@@ -78,7 +79,7 @@ func (h *HttpApi) DeclareQueue(c *HttpServContext) {
 	c.JsonSuccess("ok")
 }
 
-// curl -d 'data={"body":"this is a job","topic":"xxx","delay":20,"route_key":"xxx"}' 'http://127.0.0.1:9504/push'
+// curl http://127.0.0.1:9504/push -X POST -d 'data={"body":"this is a job","topic":"xxx","delay":20,"route_key":"xxx"}'
 // 推送消息
 func (h *HttpApi) Push(c *HttpServContext) {
 	data := c.Post("data")
@@ -104,7 +105,7 @@ func (h *HttpApi) Push(c *HttpServContext) {
 	c.JsonData(rsp)
 }
 
-// curl http://127.0.0.1:9504/ack?msgId=xxx&topic=xxx
+// curl http://127.0.0.1:9504/ack?msgId=xxx&topic=xxx&bindKey=xxx
 func (h *HttpApi) Ack(c *HttpServContext) {
 	msgId := c.GetInt64("msgId")
 	if msgId == 0 {
@@ -116,8 +117,13 @@ func (h *HttpApi) Ack(c *HttpServContext) {
 		c.JsonErr(errors.New("topic is empty"))
 		return
 	}
+	bindKey := c.Get("bindKey")
+	if len(bindKey) == 0 {
+		c.JsonErr(errors.New("bindKey is empty"))
+		return
+	}
 
-	if err := h.ctx.Dispatcher.ack(topic, uint64(msgId)); err != nil {
+	if err := h.ctx.Dispatcher.ack(topic, uint64(msgId), bindKey); err != nil {
 		c.JsonErr(err)
 	} else {
 		c.JsonSuccess("success")
@@ -166,14 +172,19 @@ func (h *HttpApi) GetTopicStat(c *HttpServContext) {
 
 	data := topicData{}
 	data.Name = t.name
+	data.QueueNum = len(t.queues)
 	data.PopNum = t.popNum
 	data.PushNum = t.pushNum
-	data.QueueNum = t.queue.num
 	data.DelayNum = t.getBucketNum()
 	data.DeadNum = t.getDeadNum()
-	data.WaitAckNum = len(t.waitAckMap)
 	data.IsAutoAck = t.isAutoAck
 	data.StartTime = t.startTime.Format("2006-01-02 15:04:05")
+
+	for _, q := range t.queues {
+		data.WaitAckNum += len(q.waitAck)
+		data.QueueMsgNum += q.num
+	}
+
 	c.JsonData(data)
 }
 
@@ -189,12 +200,17 @@ func (h *HttpApi) GetAllTopicStat(c *HttpServContext) {
 		data.Name = t.name
 		data.PopNum = t.popNum
 		data.PushNum = t.pushNum
-		data.QueueNum = t.queue.num
-		data.WaitAckNum = len(t.waitAckMap)
+		data.QueueNum = len(t.queues)
 		data.DelayNum = t.getBucketNum()
 		data.DeadNum = t.getDeadNum()
 		data.IsAutoAck = t.isAutoAck
 		data.StartTime = t.startTime.Format("2006-01-02 15:04:05")
+
+		for _, q := range t.queues {
+			data.WaitAckNum += len(q.waitAck)
+			data.QueueMsgNum += q.num
+		}
+
 		topicDatas[i] = data
 	}
 

@@ -35,12 +35,17 @@ type RecvMsgData struct {
 
 // 消息结构
 type Msg struct {
-	Id       uint64
-	Retry    uint16
-	Delay    uint32
-	Expire   uint64
-	Body     []byte
-	RouteKey string
+	Id     uint64 `json:"id"`
+	Retry  uint16 `json:"retry"`
+	Delay  uint32 `json:"delay"`
+	Expire uint64 `json:"expire"`
+	Body   []byte `json:"body"`
+}
+
+// 延迟消息结构
+type DelayMsg struct {
+	Msg      *Msg     `json:"msg"`
+	BindKeys []string `json:"bind_key"`
 }
 
 type MsgIndex struct {

@@ -55,11 +55,19 @@ type queue struct {
 	topic    *Topic
 	file     *os.File
 	ctx      *Context
+	bindKey  string
+	waitAck  map[uint64]int64
 	sync.RWMutex
 }
 
-func NewQueue(name string, ctx *Context, topic *Topic) *queue {
-	queue := &queue{name: name, ctx: ctx, topic: topic}
+func NewQueue(name, bindKey string, ctx *Context, topic *Topic) *queue {
+	queue := &queue{
+		name:    name,
+		ctx:     ctx,
+		topic:   topic,
+		bindKey: bindKey,
+		waitAck: make(map[uint64]int64),
+	}
 
 	path := fmt.Sprintf("%s/%s.queue", ctx.Conf.DataSavePath, name)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
@@ -112,7 +120,7 @@ func (q *queue) scan() ([]byte, error) {
 	}
 	if q.soffset == q.roffset {
 		q.Unlock()
-		return nil, errors.New("no message")
+		return nil, ErrMessageNotExist
 	}
 
 	// 消息结构 flag(1-byte) + status(2-bytes) + msg_len(4-bytes) + msg(n-bytes)
@@ -208,11 +216,9 @@ func (q *queue) rewrite() error {
 	q.LogDebug(fmt.Sprintf("after rewrite, scan-offset:%v, read-offset:%v, write-offset:%v", q.soffset, q.roffset, q.woffset))
 	// data = nil
 
-	q.topic.waitAckMux.Lock()
-	for k, v := range q.topic.waitAckMap {
-		q.topic.waitAckMap[k] = v - q.soffset
+	for k, v := range q.waitAck {
+		q.waitAck[k] = v - q.soffset
 	}
-	q.topic.waitAckMux.Unlock()
 
 	q.soffset = 0
 	path := fmt.Sprintf("%s/%s.queue", q.ctx.Conf.DataSavePath, q.name)
@@ -224,9 +230,14 @@ func (q *queue) rewrite() error {
 }
 
 // 消息设置为已确认消费
-func (q *queue) ack(offset int64) error {
+func (q *queue) ack(msgId uint64) error {
 	q.Lock()
 	defer q.Unlock()
+
+	offset, ok := q.waitAck[msgId]
+	if !ok {
+		return fmt.Errorf("msgId:%v is not exist.", msgId)
+	}
 
 	if offset > int64(len(q.data))-1 {
 		return fmt.Errorf("ack.offset greather than queue.length.")
@@ -236,6 +247,21 @@ func (q *queue) ack(offset int64) error {
 	}
 
 	binary.BigEndian.PutUint16(q.data[offset+1:offset+3], MSG_STATUS_FIN)
+	delete(q.waitAck, msgId)
+	return nil
+}
+
+// 移除消息等待状态
+func (q *queue) removeWait(msgId uint64) error {
+	q.Lock()
+	defer q.Unlock()
+
+	_, ok := q.waitAck[msgId]
+	if !ok {
+		return fmt.Errorf("msgId:%v is not exist.", msgId)
+	}
+
+	delete(q.waitAck, msgId)
 	return nil
 }
 
@@ -270,36 +296,39 @@ func (q *queue) unmap() error {
 }
 
 // 队列读取消息
-func (q *queue) read(isAutoAck bool) ([]byte, int64, error) {
+func (q *queue) read(isAutoAck bool) ([]byte, error) {
 	q.Lock()
 	defer q.Unlock()
 
 	msgOffset := q.roffset
 	if q.roffset == q.woffset {
-		return nil, 0, errors.New("no message")
+		return nil, errors.New("no message")
 	}
 
 	// 消息结构 flag(1-byte) + status(2-bytes) + msg_len(4-bytes) + msg(n-bytes)
+	// msg又包括expire(8-bytes) + id(8-bytes) + retry(2-bytes) + body(n-bytes)
 	if flag := q.data[q.roffset]; flag != 'v' {
-		return nil, 0, errors.New("unkown msg flag")
-	}
-
-	// 如果所属的topic是自动确认,则status设置为MSG_STATUS_FIN
-	if isAutoAck {
-		binary.BigEndian.PutUint16(q.data[q.roffset+1:q.roffset+3], uint16(MSG_STATUS_FIN))
-	} else {
-		binary.BigEndian.PutUint16(q.data[q.roffset+1:q.roffset+3], uint16(MSG_STATUS_WAIT))
-		binary.BigEndian.PutUint64(q.data[q.roffset+7:q.roffset+15], uint64(time.Now().Unix())+uint64(q.topic.msgTTR))
-		// q.LogDebug(fmt.Sprintf("msg had been readed. exipire time is %v", uint64(time.Now().Unix())+uint64(q.topic.msgTTR)))
+		return nil, errors.New("unkown msg flag")
 	}
 
 	msgLen := int64(binary.BigEndian.Uint32(q.data[q.roffset+3 : q.roffset+7]))
 	msg := make([]byte, msgLen)
 	copy(msg, q.data[q.roffset+7:q.roffset+7+msgLen])
-	q.roffset += MSG_FIX_LENGTH + msgLen
 	atomic.AddInt64(&q.num, -1)
 
-	return msg, msgOffset, nil
+	if isAutoAck {
+		binary.BigEndian.PutUint16(q.data[q.roffset+1:q.roffset+3], uint16(MSG_STATUS_FIN))
+	} else {
+		binary.BigEndian.PutUint16(q.data[q.roffset+1:q.roffset+3], uint16(MSG_STATUS_WAIT))
+		binary.BigEndian.PutUint64(q.data[q.roffset+7:q.roffset+15], uint64(time.Now().Unix())+uint64(q.topic.msgTTR))
+		msgId := binary.BigEndian.Uint64(q.data[q.roffset+15 : q.roffset+23])
+		q.waitAck[msgId] = msgOffset
+		// q.LogDebug(fmt.Sprintf("msg had been readed. exipire time is %v", uint64(time.Now().Unix())+uint64(q.topic.msgTTR)))
+	}
+
+	// 移动读偏移位置
+	q.roffset += MSG_FIX_LENGTH + msgLen
+	return msg, nil
 }
 
 // 新写入信息的长度不能超过文件大小,超过则新建文件

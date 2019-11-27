@@ -16,6 +16,9 @@ type GnodeConfig struct {
 	// gresiter
 	GregisterAddr string
 
+	// etcd
+	EtcdEndPoints []string
+
 	// http server
 	HttpServAddr      string
 	HttpServEnableTls bool
@@ -73,6 +76,11 @@ func (c *GnodeConfig) SetDefault() {
 		c.MsgMaxPushNum = 1000
 	}
 
+	// etcd
+	if len(c.EtcdEndPoints) == 0 {
+		c.EtcdEndPoints = append(c.EtcdEndPoints, "127.0.0.1:2379")
+	}
+
 	// 数据存储目录,相对于命令执行所在目录,例如在/home执行启动命令,将会生成/home/data目录
 	if len(c.DataSavePath) == 0 {
 		c.DataSavePath = "data/gnode"
@@ -83,7 +91,7 @@ func (c *GnodeConfig) SetDefault() {
 		c.LogFilename = "gnode.log"
 	}
 	if c.LogLevel <= 0 {
-		c.LogLevel = 2
+		c.LogLevel = 4
 	}
 	if c.LogMaxSize <= 5000000 {
 		c.LogMaxSize = 5000000

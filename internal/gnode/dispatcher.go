@@ -235,35 +235,18 @@ func (d *Dispatcher) resizePool(topicNum int, workCh chan *Topic, closeCh chan i
 
 // 消息推送
 // 每一条消息都需要dispatcher统一分配msg.Id
-func (d *Dispatcher) push(name string, key string, data []byte, delay int) (uint64, error) {
+func (d *Dispatcher) push(name string, routeKey string, data []byte, delay int) (uint64, error) {
 	msgId := d.snowflake.Generate()
 	msg := &Msg{}
 	msg.Id = msgId
 	msg.Delay = uint32(delay)
 	msg.Body = data
-	msg.RouteKey = key
 
 	topic := d.GetTopic(name)
-	err := topic.push(msg)
+	err := topic.push(msg, routeKey)
 	msg = nil
 
 	return msgId, err
-}
-
-// 延迟消息批量推送
-func (d *Dispatcher) mpush(name string, msgs [][]byte, delays []int) ([]uint64, error) {
-	if len(msgs) == 0 {
-		return nil, errors.New("msg is empty")
-	}
-
-	var msgIds []uint64
-	for i := 0; i < len(msgs); i++ {
-		msgIds = append(msgIds, d.snowflake.Generate())
-	}
-
-	topic := d.GetTopic(name)
-	err := topic.mpush(msgIds, msgs, delays)
-	return msgIds, err
 }
 
 // 消息消费
@@ -283,9 +266,9 @@ func (d *Dispatcher) dead(name string, num int) ([]*Msg, error) {
 }
 
 // 消费确认
-func (d *Dispatcher) ack(name string, msgId uint64) error {
+func (d *Dispatcher) ack(name string, msgId uint64, bindKey string) error {
 	topic := d.GetTopic(name)
-	return topic.ack(msgId)
+	return topic.ack(msgId, bindKey)
 }
 
 // 设置topic配置

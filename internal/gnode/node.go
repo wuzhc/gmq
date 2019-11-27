@@ -1,16 +1,18 @@
 package gnode
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
+	"github.com/etcd-io/etcd/clientv3"
 	"github.com/wuzhc/gmq/configs"
 	"github.com/wuzhc/gmq/pkg/logs"
 	"github.com/wuzhc/gmq/pkg/utils"
@@ -27,6 +29,12 @@ type Gnode struct {
 	ctx      *Context
 	wg       utils.WaitGroupWrapper
 	cfg      *configs.GnodeConfig
+	etcd     etcd
+}
+
+type etcd struct {
+	cli     *clientv3.Client
+	leaseId clientv3.LeaseID
 }
 
 func New(cfg *configs.GnodeConfig) *Gnode {
@@ -46,7 +54,6 @@ func (gn *Gnode) Run() {
 		log.Fatalln("gnode start failed.")
 	}
 
-	// 创建数据(消息和日志)文件存储位置
 	isExist, err := utils.PathExists(gn.cfg.DataSavePath)
 	if err != nil {
 		log.Fatalln(err)
@@ -68,22 +75,102 @@ func (gn *Gnode) Run() {
 	gn.wg.Wrap(NewHttpServ(ctx).Run)
 	gn.wg.Wrap(NewTcpServ(ctx).Run)
 
-	ctx.Logger.Info("gnode is running.")
-
 	if err := gn.register(); err != nil {
-		log.Printf("register failed, %v\n", err)
+		log.Fatalln(err)
 	}
+
+	ctx.Logger.Info("gnode is running.")
+}
+
+// 将gmq节点注册到etcd
+func (gn *Gnode) register() error {
+	cli, err := clientv3.New(clientv3.Config{
+		Endpoints:   gn.cfg.EtcdEndPoints,
+		DialTimeout: 2 * time.Second,
+	})
+	if err != nil {
+		return fmt.Errorf("create etcd client failed, %s\n", err)
+	}
+
+	gn.etcd.cli = cli
+	ch, err := gn.keepAlive()
+	if err != nil {
+		return err
+	}
+
+	gn.wg.Wrap(func() {
+		gn.recvLeaseResponse(ch)
+	})
+
+	return nil
+}
+
+// 每次续约都会接收响应
+func (gn *Gnode) recvLeaseResponse(ch <-chan *clientv3.LeaseKeepAliveResponse) {
+	for {
+		select {
+		case <-gn.exitChan:
+			gn.revoke()
+			return
+		case <-gn.etcd.cli.Ctx().Done():
+			return
+		case ka, ok := <-ch:
+			if !ok {
+				gn.ctx.Logger.Info("keep alive channel closed")
+				gn.revoke()
+				return
+			} else {
+				gn.ctx.Logger.Debug(fmt.Sprintf("etcd lease keep alive, ttl:%d", ka.TTL))
+			}
+		}
+	}
+}
+
+// 撤销etcd租约
+func (gn *Gnode) revoke() {
+	_, err := gn.etcd.cli.Revoke(context.TODO(), gn.etcd.leaseId)
+	if err != nil {
+		gn.ctx.Logger.Info(fmt.Sprintf("etcd revoke failed, %s\n", err))
+	}
+
+	gn.ctx.Logger.Info("gnode etcd stop.")
+}
+
+// 不断续约租约
+func (gn *Gnode) keepAlive() (<-chan *clientv3.LeaseKeepAliveResponse, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	resp, err := gn.etcd.cli.Grant(ctx, 30)
+	cancel()
+	if err != nil {
+		return nil, fmt.Errorf("grant etcd.leaseId failed, %s", err)
+	}
+	gn.etcd.leaseId = resp.ID
+
+	// 包装注册内容信息
+	key := fmt.Sprintf("/gmq/node-%d", gn.cfg.NodeId)
+	info := make(map[string]string)
+	info["tcp_addr"] = gn.cfg.TcpServAddr
+	info["http_addr"] = gn.cfg.HttpServAddr
+	info["weight"] = strconv.Itoa(gn.cfg.NodeWeight)
+	info["node_id"] = strconv.Itoa(gn.cfg.NodeId)
+	value, err := json.Marshal(info)
+	if err != nil {
+		return nil, fmt.Errorf("json marshal failed, %s", err)
+	}
+
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	_, err = gn.etcd.cli.Put(ctx, key, string(value), clientv3.WithLease(resp.ID))
+	if err != nil {
+		return nil, fmt.Errorf("put key to etcd failed, %s", err)
+	}
+
+	return gn.etcd.cli.KeepAlive(context.TODO(), resp.ID)
 }
 
 // 退出应用
 func (gn *Gnode) Exit() {
-	defer gn.wg.Wait()
-
-	if err := gn.unregister(); err != nil {
-		log.Printf("unregister failed, %v\n", err)
-	}
-
 	close(gn.exitChan)
+	gn.wg.Wait()
 }
 
 // gnode配置参数
@@ -192,60 +279,4 @@ func (gn *Gnode) initLogger() *logs.Dispatcher {
 		}
 	}
 	return logger
-}
-
-type rs struct {
-	Code int         `json:"code"`
-	Data interface{} `json:"data"`
-	Msg  string      `json:"msg"`
-}
-
-func (gn *Gnode) register() error {
-	hosts := strings.Split(gn.cfg.GregisterAddr, ",")
-	for _, host := range hosts {
-		url := fmt.Sprintf("%s/register?tcp_addr=%s&http_addr=%s&weight=%d&node_id=%d", host, gn.cfg.ReportTcpAddr, gn.cfg.ReportHttpAddr, gn.cfg.NodeWeight, gn.cfg.NodeId)
-		resp, err := http.Get(url)
-		if err != nil {
-			return err
-		}
-		res, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return err
-		}
-
-		var r rs
-		if err := json.Unmarshal(res, &r); err != nil {
-			return err
-		}
-		if r.Code == 1 {
-			return fmt.Errorf(r.Msg)
-		}
-	}
-
-	return nil
-}
-
-func (gn *Gnode) unregister() error {
-	ts := strings.Split(gn.cfg.GregisterAddr, ",")
-	for _, t := range ts {
-		url := t + "/unregister?tcp_addr=" + gn.cfg.TcpServAddr
-		resp, err := http.Get(url)
-		if err != nil {
-			return err
-		}
-		res, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return err
-		}
-
-		var r rs
-		if err := json.Unmarshal(res, &r); err != nil {
-			return err
-		}
-		if r.Code == 1 {
-			return fmt.Errorf(r.Msg)
-		}
-	}
-
-	return nil
 }
