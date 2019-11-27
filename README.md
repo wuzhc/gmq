@@ -32,38 +32,65 @@ gmq是一个简单的推拉模型,基本架构如下:
 - 6. topic将消息存储于queue队列中,等待客户端消费
 
 ## 2. 安装运行
-gmq节点启动需要向etcd注册信息，所以需要先启动etcd
-
-
-### 2.1 安装gmq
+### 2.1 启动etcd
+gmq节点启动需要向etcd注册节点信息，所以需要先启动etcd，安装etcd过程很简单，可以在网上找到对应的教程，安装成功后启动命令如下：
 ```bash
-git clone -b gmq-dev-v3  https://github.com/wuzhc/gmq.git 
-cd gmq
+# 最简单启动命令，指定etcd名称为gmq-register
+etcd --name gmq-register
+```
+
+### 2.2 启动gmq节点
+gmq使用`go mod`来管理第三方依赖包，需要设置环境变量`GO111MODULE=on`,因为国内墙问题，还需要设置代理加快速度`GOPROXY=https://goproxy.io`，如下：
+```bash
 export GO111MODULE=on 
 export GOPROXY=https://goproxy.io
-go mod tidy
-go mod vendor 
-make build 
-
-# 启动注册中心服务
-build/gregister -http_addr=":9595"
-# 启动节点
-# http_addr http服务
-# tcp_addr tcp服务
-# node_id节点ID,唯一值,范围在1到1024
-# node_weight节点权重,用于多节点选择节点的依据
-build/gnode -http_addr=":9504" -tcp_addr=":9503" -register_addr="http://127.0.0.1:9595" -node_id=1 -node_weight=1 
 ```
-除此之外,还可以直接指定配置文件,命令行参数为`-config_file`,如下:
+
+下载gmq源码
 ```bash
-build/gregister -config_file="conf.ini"
+# clone项目
+git clone -b gmq-dev-v3  https://github.com/wuzhc/gmq.git 
+# 进入gmq目录
+cd gmq
+```
+
+`go mod`工具安装不了`go-systemd`库，所以需要先手动安装`go-systemd`
+```bash
+# 将coreos/go-systemd下载到GOPATH路径下
+git clone https://github.com/coreos/go-systemd.git ${GOPATH}/src/github.com/coreos/go-systemd
+# 修改go.mod文件
+vi go.mod
+# 替换replace的/data/wwwroot/go修改为你的电脑GOPATH的实际路径，/data/wwwroot/go是我电脑的GOPATH路径
+replace github.com/coreos/go-systemd => /data/wwwroot/go/src/github.com/coreos/go-systemd
+```
+
+编译安装
+```bash
+# 使用go mod安装需要的依赖，并将依赖包移动到gmq根目录下的vendor目录下，例如gmq/vendor
+go mod tidy
+go mod vendor
+# 编译
+make build
+# 启动节点
+# http_addr 指定http服务IP和端口
+# tcp_addr 指定tcp服务IP和端口
+# node_id节点ID,每个节点都是一个唯一值,范围在1到1024之间
+# node_weight节点权重,用于多节点选择节点的依据
+build/gnode -http_addr=":9504" -tcp_addr=":9503" -etcd_endpoints="127.0.0.1:2379,127.0.0.1:2479" -node_id=1 -node_weight=1 
+# 或者使用`go run`直接运行源码
+go run cmd/gnode/main.go -http_addr=":9504" -tcp_addr=":9503" -etcd_endpoints="127.0.0.1:2379,127.0.0.1:2479" -node_id=1 -node_weight=1 
+```
+
+### 2.3 配置启动参数
+上面启动节点时，命令行可以指定参数，除此之外，还可以直接指定配置文件,命令行参数为`-config_file`,如下:
+```bash
 build/gnode -config_file="conf.ini"
 ```
 配置文件`conf.ini`,参考
 - gnode配置文件 https://github.com/wuzhc/gmq/blob/gmq-dev-v3/cmd/gnode/conf.ini
-- gregister配置文件 https://github.com/wuzhc/gmq/blob/gmq-dev-v3/cmd/gregister/conf.ini
 
-### 将node服务添加到系统service服务
+### 2.4 添加到系统service服务
+添加到系统service服务，方便线上环境操作
 ```bash
 # 安装node服务,文件位于`/etc/systemd/system/gmq-node.service`
 build/gnode install
@@ -79,19 +106,35 @@ build/gnode restart
 build/gnode status
 ```
 
-注意:  
-- 先启动注册中心`gregister`,再启动节点`gnode`,因为每个节点启动时候需要把节点基本信息上报给注册中心
+### 2.5 docker运行
 - 如果想快速体验gmq,也可以直接用docker容器运行gmq的镜像,[参考](https://github.com/wuzhc/zcnote/blob/master/golang/gmq/gmq%E5%AE%B9%E5%99%A8docker.md)
 
 ## 3. 测试
 启动注册中心和节点之后,便可以开始消息推送和消费了,打开终端,执行如下命令
 ```bash
+# 配置topic
+# isAutoAck 是否自动确认消息，1是，0否，默认为0
+# mode 路由key匹配模式，1全匹配，2模糊匹配，默认为1
+# msgTTR 消息执行超时时间，在msgTTR内没有确认消息，则消息重新入队，再次被消费,默认为30
+# msgRetry 消息重试次数，超过msgRetry次数后，消息会被写入到死信队列，默认为5
+curl -s "http://127.0.0.1:9504/config?topic=ketang&isAuthoAck=1&mode=1&msgTTR=30&msgRetry=5"
+
+# 声明队列，
+# bindKey 通过key绑定都topic某个队列上，队列名称为gmq自动生成（queue_name = topic + bind_key）
+curl -s "http://127.0.0.1:9504/declareQueue?topic=ketang&bindKey=homework"
+
 # 推送消息
-curl -d 'data={"body":"hello world","topic":"topic-1","delay":0}' 'http://127.0.0.1:9504/push'
+# route_key 路由key，当topic.mode为模糊匹配时，可以指定为正则
+curl http://127.0.0.1:9504/push -X POST -d 'data={"body":"this is a job","topic":"ketang","delay":0,"route_key":"homework"}'
+
 # 消费消息
-curl http://127.0.0.1:9504/pop?topic=topic-1 
+# bindKey 绑定key，必须和声明队列bindKey一致，bindKey可以理解为topic.queue的标识
+curl "http://127.0.0.1:9504/pop?topic=ketang&bindKey=homework"
+
 # 确认消息
-curl http://127.0.0.1:9504/ack?msgId=xxxxx&topic=topic-1
+# msgId 消息ID
+# bindKey 绑定key，必须和声明队列bindKey一致，bindKey可以理解为topic.queue的标识
+curl "http://127.0.0.1:9504/ack?msgId=384261148721025024&topic=ketang&bindKey=homework"
 ```
 
 ## 4. 客户端
