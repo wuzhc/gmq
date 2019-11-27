@@ -17,7 +17,8 @@ const (
 )
 
 var (
-	ErrMessageNotExist = errors.New("no message")
+	ErrMessageNotExist  = errors.New("no message")
+	ErrMessageNotExpire = errors.New("no message expire")
 )
 
 type RespMsgData struct {

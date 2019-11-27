@@ -120,7 +120,7 @@ func (c *TcpConn) Handle() {
 	close(c.exitChan)
 }
 
-// pub <topic_name> <route_key> <delay-time>
+// pub <topic_name> <route_key> <delay-time>\n
 // [ 4-byte size in bytes ][ N-byte binary data ]
 func (c *TcpConn) PUB(params [][]byte) error {
 	if len(params) != 3 {
@@ -160,7 +160,7 @@ func (c *TcpConn) PUB(params [][]byte) error {
 	return nil
 }
 
-// pub <topic_name> <num>
+// mpub <topic_name> <num>\n
 // <msg.len> <[]byte({"delay":1,"body":"xxx","topic":"xxx","routeKey":"xxx"})>
 // <msg.len> <[]byte({"delay":1,"body":"xxx","topic":"xxx","routeKey":"xxx"})>
 func (c *TcpConn) MPUB(params [][]byte) error {
@@ -216,7 +216,7 @@ func (c *TcpConn) MPUB(params [][]byte) error {
 	return nil
 }
 
-// pop <topic_name> <bind_key>
+// pop <topic_name> <bind_key>\n
 func (c *TcpConn) POP(params [][]byte) error {
 	if len(params) != 2 {
 		return errors.New("pop params is error")
@@ -236,7 +236,7 @@ func (c *TcpConn) POP(params [][]byte) error {
 	return nil
 }
 
-// ack <message_id>
+// ack <message_id> <topic> <bind_key>\n
 func (c *TcpConn) ACK(params [][]byte) error {
 	if len(params) != 3 {
 		return errors.New("ack params is error")
@@ -256,7 +256,7 @@ func (c *TcpConn) ACK(params [][]byte) error {
 }
 
 // 消费死信
-// dead <topic_name> <message_number>
+// dead <topic_name> <message_number>\n
 func (c *TcpConn) DEAD(params [][]byte) error {
 	if len(params) != 2 {
 		return errors.New("dead params is error")
@@ -286,7 +286,7 @@ type topicConfigure struct {
 }
 
 // 设置topic信息,目前只有isAutoAck选项
-// set <topic_name> <isAutoAck> <mode> <msg_ttr> <msg_retry>
+// set <topic_name> <isAutoAck> <mode> <msg_ttr> <msg_retry>\n
 func (c *TcpConn) SET(params [][]byte) error {
 	if len(params) != 2 {
 		return errors.New("ack params is error")
@@ -317,7 +317,7 @@ func (c *TcpConn) SET(params [][]byte) error {
 }
 
 // declare queue
-// queue <topic_name> <bind_key>
+// queue <topic_name> <bind_key>\n
 func (c *TcpConn) DECLAREQUEUE(params [][]byte) error {
 	if len(params) != 2 {
 		return errors.New("queue params is error")

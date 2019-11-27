@@ -357,7 +357,7 @@ func (t *Topic) retrievalQueueExipreMsg() error {
 		for {
 			data, err := queue.scan()
 			if err != nil {
-				if err != ErrMessageNotExist {
+				if err != ErrMessageNotExist && err != ErrMessageNotExpire {
 					t.LogError(err)
 				}
 				break

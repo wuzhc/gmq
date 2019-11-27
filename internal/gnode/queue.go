@@ -145,7 +145,7 @@ func (q *queue) scan() ([]byte, error) {
 	// 队列中未有消息到期
 	if expireTime > uint64(time.Now().Unix()) {
 		q.Unlock()
-		return nil, errors.New("no message expire.")
+		return nil, ErrMessageNotExpire
 	}
 
 	// 已过期消息状态设置为已到期,已过期消息将重新添加到队列,等待再次被消费
