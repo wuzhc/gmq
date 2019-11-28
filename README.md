@@ -14,22 +14,26 @@
 - 提供web管理界面
 - 内置了pprof调试工具
 
-## 1. 架构
-gmq是一个简单的推拉模型,基本架构如下:
+## 1. 模型
+gmq是一个简单的推拉模型,如图:
 ![架构](https://gitee.com/wuzhc123/zcnote/raw/master/images/gmq/gmq%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1.png)
+
 ### 1.1 名词:  
-- register 注册中心,负责节点信息存储
-- node 节点,提供消息服务
+- etcd 注册中心,负责gnode节点信息存储，为客户端提供发现服务功能
+- gnode 节点,提供消息服务
 - dispatcher 调度器,负责管理topic
-- topic 消息主题,即消息类型,每一条消息都有所属topic,topic会维护一个queue
+- topic 消息主题,即消息类型,每一条消息都有所属topic,topic会维护多个queue
 - queue 队列,消息存储地方
-### 1.2 大概流程:  
-- 1. 先启动注册中心服务
-- 2. 启动节点服务,节点向注册中心注册自己的基本信息
-- 3. 客户端通过连接注册中心,获取注册中心保存的所有节点信息
-- 4. 客户端根据某个算法从节点列表中选择一个节点建立连接,然后进行消息推送
+- bind_key 绑定键，通过绑定键将队列绑定在指定topic上，一个topic上的绑定键是唯一的，绑定键可以作为队列的标识
+- route_key 路由键，投递消息时指定路由键和topic，可以将消息投递到路由键和绑定键匹配的队列上（支持全匹配和模糊匹配两种模式）
+
+### 1.2 流程说明:  
+- 1. 启动etcd服务
+- 2. 启动gnode节点，并向etcd注册节点信息
+- 3. 客户端通过监控etcd,获取etcd中所有gnode节点信息
+- 4. 客户端可以根据某个算法从节点列表中选择一个节点建立连接,然后进行消息推送
 - 5. 消息通过调度器获取对应的topic(不存在则新建一个topic),然后交由topic处理
-- 6. topic将消息存储于queue队列中,等待客户端消费
+- 6. topic根据route_key，将消息投递到与bind_key相匹配queue队列中（投递之前需要先声明队列，指定bind_key）
 
 ## 2. 安装运行
 ### 2.1 启动etcd
@@ -140,9 +144,11 @@ curl "http://127.0.0.1:9504/ack?msgId=384261148721025024&topic=ketang&bindKey=ho
 ## 4. 客户端
 gmq提供了一个golang版本的客户端,目前还只是demo级的,参考[gmq-client客户端](https://github.com/wuzhc/gmq-client-go)
 
+
 ## 5. web管理系统
 在`gmq-web`系统中,可以进行手动注册注销节点,查看各个topic统计信息,修改topic配置信息,进行消息推送,拉取,确认等等功能,参考[gmq-web管理系统](https://github.com/wuzhc/gmq-web),以下是`gmq-web`的截图
 ![gmq-web](https://gitee.com/wuzhc123/zcnote/raw/master/images/gmq/gmq-web%E4%B8%BB%E9%A2%98%E5%88%97%E8%A1%A8.png)
+
 
 ## 6. 相关文章
 - [gmq架构设计](https://github.com/wuzhc/zcnote/blob/master/golang/gmq/gmq%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8.md)
@@ -164,5 +170,5 @@ gmq提供了一个golang版本的客户端,目前还只是demo级的,参考[gmq-
 - 没有应用级别的客户端,目前只是一个demo级别的例子,并且没有失败重试功能
 - 消息存在丢失情况,在内存映射的文件写数据,会延迟写到磁盘文件,除非手动触发`msync`系统调用,考虑做镜像节点
 - 提供完善的消息追踪功能,目前无法根据消息ID在队列中定位,因为目前没有消息ID和offset建立的map关系
-- bbolt写入速度慢问题
+- bbolt写入速度慢问题，当gmq有大量消息超过最大重试次数时会写入到死信队列，因为写入速度很慢导致不能正常处理其他正常业务
 
