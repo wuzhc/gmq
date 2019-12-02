@@ -110,9 +110,6 @@ build/gnode restart
 build/gnode status
 ```
 
-### 2.5 docker运行
-- 如果想快速体验gmq,也可以直接用docker容器运行gmq的镜像,[参考](https://github.com/wuzhc/zcnote/blob/master/golang/gmq/gmq%E5%AE%B9%E5%99%A8docker.md)
-
 ## 3. 测试
 启动注册中心和节点之后,便可以开始消息推送和消费了,打开终端,执行如下命令
 ```bash
