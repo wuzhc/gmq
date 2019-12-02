@@ -4,7 +4,7 @@ ifeq (${GOOS},windows)
 endif
 
 .PHONY: all
-all: vendor clean build install
+all: clean build install
 
 APPS = gnode
 .PHONY: $(APPS)

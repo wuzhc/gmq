@@ -128,12 +128,14 @@ func (gn *Gnode) recvLeaseResponse(ch <-chan *clientv3.LeaseKeepAliveResponse) {
 
 // 撤销etcd租约
 func (gn *Gnode) revoke() {
-	_, err := gn.etcd.cli.Revoke(context.TODO(), gn.etcd.leaseId)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	_, err := gn.etcd.cli.Revoke(ctx, gn.etcd.leaseId)
+	cancel()
 	if err != nil {
-		gn.ctx.Logger.Info(fmt.Sprintf("etcd revoke failed, %s\n", err))
+		gn.ctx.Logger.Info(fmt.Sprintf("etcd lease revoke failed, %s\n", err))
 	}
 
-	gn.ctx.Logger.Info("gnode etcd stop.")
+	gn.ctx.Logger.Info("etcd lease has revoke.")
 }
 
 // 不断续约租约
@@ -153,6 +155,7 @@ func (gn *Gnode) keepAlive() (<-chan *clientv3.LeaseKeepAliveResponse, error) {
 	info["http_addr"] = gn.cfg.HttpServAddr
 	info["weight"] = strconv.Itoa(gn.cfg.NodeWeight)
 	info["node_id"] = strconv.Itoa(gn.cfg.NodeId)
+	info["join_time"] = time.Now().Format("2006-01-02 15:04:05")
 	value, err := json.Marshal(info)
 	if err != nil {
 		return nil, fmt.Errorf("json marshal failed, %s", err)
@@ -178,7 +181,7 @@ func NewGnodeConfig() *configs.GnodeConfig {
 	var err error
 	var cfg *configs.GnodeConfig
 
-	// 指定配置文件
+	// specify config file
 	cfgFile := flag.String("config_file", "", "config file")
 	if len(*cfgFile) > 0 {
 		cfg, err = LoadConfigFromFile(*cfgFile)
@@ -189,7 +192,9 @@ func NewGnodeConfig() *configs.GnodeConfig {
 		cfg = new(configs.GnodeConfig)
 	}
 
-	// 命令行选项
+	// command options
+	var endpoints string
+	flag.StringVar(&endpoints, "etcd_endpoints", cfg.TcpServAddr, "etcd endpoints")
 	flag.StringVar(&cfg.TcpServAddr, "tcp_addr", cfg.TcpServAddr, "tcp address")
 	flag.StringVar(&cfg.GregisterAddr, "register_addr", cfg.GregisterAddr, "register address")
 	flag.StringVar(&cfg.HttpServAddr, "http_addr", cfg.HttpServAddr, "http address")
@@ -202,10 +207,13 @@ func NewGnodeConfig() *configs.GnodeConfig {
 	flag.StringVar(&cfg.DataSavePath, "data_save_path", cfg.DataSavePath, "data save path")
 	flag.Parse()
 
-	// 默认参数值
+	// parse etcd endpoints
+	if len(endpoints) > 0 {
+		cfg.EtcdEndPoints = strings.Split(endpoints, ",")
+	}
+
 	cfg.SetDefault()
 
-	// 检验参数值
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("config file %v error, %v\n", *cfgFile, err)
 	}

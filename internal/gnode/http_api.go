@@ -25,7 +25,7 @@ type topicData struct {
 	IsAutoAck   bool   `json:"is_auto_ack"`
 }
 
-// curl http://127.0.0.1:9504/pop?topic=xxx&bindKey=xxx
+// curl "http://127.0.0.1:9504/pop?topic=xxx&bindKey=xxx"
 // 消费任务
 func (h *HttpApi) Pop(c *HttpServContext) {
 	topic := c.Get("topic")
@@ -57,7 +57,7 @@ func (h *HttpApi) Pop(c *HttpServContext) {
 	return
 }
 
-// curl http://127.0.0.1:9504/declareQueue?topic=xxx&bindKey=kkk
+// curl "http://127.0.0.1:9504/declareQueue?topic=xxx&bindKey=kkk"
 // 声明队列
 func (h *HttpApi) DeclareQueue(c *HttpServContext) {
 	topic := c.Get("topic")
@@ -130,7 +130,7 @@ func (h *HttpApi) Ack(c *HttpServContext) {
 	}
 }
 
-// curl http://127.0.0.1:9504/config?topic=xxx&isAuthoAck=1&mode=1&msgTTR=30&msgRetry=5
+// curl "http://127.0.0.1:9504/config?topic=xxx&isAuthoAck=1&mode=1&msgTTR=30&msgRetry=5"
 // 配置topic
 func (h *HttpApi) Config(c *HttpServContext) {
 	topic := c.Get("topic")

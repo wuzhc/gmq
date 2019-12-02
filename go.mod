@@ -11,7 +11,7 @@ require (
 	github.com/etcd-io/etcd v3.3.17+incompatible
 	github.com/gogo/protobuf v1.3.1 // indirect
 	github.com/google/uuid v1.1.1 // indirect
-	github.com/kardianos/service v1.0.0 // indirect
+	github.com/kardianos/service v1.0.0
 	github.com/wuzhc/bbolt v1.3.3
 	go.uber.org/zap v1.13.0 // indirect
 	google.golang.org/grpc v1.25.1 // indirect
