@@ -18,6 +18,7 @@ import (
 )
 
 const (
+	DEFAULT_KEY           = "default"
 	DEAD_QUEUE_FLAG       = "dead"
 	ROUTE_KEY_MATCH_FULL  = 1
 	ROUTE_KEY_MATCH_FUZZY = 2
@@ -141,6 +142,8 @@ func (t *Topic) init() {
 		queue.num = q.Num
 		queue.name = q.Name
 		t.queues[q.BindKey] = queue
+
+		t.LogInfo(fmt.Sprintf("restore queue %s", queue.name))
 	}
 
 	// restore dead queue meta data
@@ -157,6 +160,8 @@ func (t *Topic) init() {
 		queue.num = q.Num
 		queue.name = q.Name
 		t.deadQueues[q.BindKey] = queue
+
+		t.LogInfo(fmt.Sprintf("restore queue %s", queue.name))
 	}
 }
 
@@ -274,7 +279,7 @@ func (t *Topic) pushMsgToBucket(dg *DelayMsg) error {
 
 		bucket := tx.Bucket([]byte(t.name))
 		key := creatBucketKey(dg.Msg.Id, dg.Msg.Expire)
-		// t.LogInfo(fmt.Sprintf("%v-%v-%v write in bucket", delayTime, msgId, key))
+		t.LogDebug(fmt.Sprintf("%v-%v-%v write in bucket", dg.Msg.Id, string(dg.Msg.Body), key))
 
 		value, err := json.Marshal(dg)
 		if err != nil {
@@ -292,8 +297,9 @@ func (t *Topic) pushMsgToBucket(dg *DelayMsg) error {
 	return err
 }
 
+// 添加消息到死信队列
 func (t *Topic) pushMsgToDeadQueue(msg *Msg, bindKey string) error {
-	queue := t.getDeadQueueByBindKey(bindKey)
+	queue := t.getDeadQueueByBindKey(bindKey, true)
 	if err := queue.write(Encode(msg)); err != nil {
 		return err
 	}
@@ -457,7 +463,11 @@ func (t *Topic) pop(bindKey string) (*Msg, error) {
 
 // 死信队列消费
 func (t *Topic) dead(bindKey string) (*Msg, error) {
-	queue := t.getDeadQueueByBindKey(bindKey)
+	queue := t.getDeadQueueByBindKey(bindKey, false)
+	if queue == nil {
+		return nil, fmt.Errorf("bindkey:%s is not associated with queue", bindKey)
+	}
+
 	data, err := queue.read(true)
 	if err != nil {
 		return nil, err
@@ -531,19 +541,30 @@ func (t *Topic) delcareQueue(bindKey string) error {
 	return nil
 }
 
-// 根据key获取队列，key匹配支持全匹配和模糊匹配
-func (t *Topic) getQueuesByRouteKey(key string) []*queue {
+// 根据路由键获取队列，支持全匹配和模糊匹配两种方式
+func (t *Topic) getQueuesByRouteKey(routeKey string) []*queue {
 	t.queueMux.Lock()
 	defer t.queueMux.Unlock()
+
+	// use default key when routeKey is empty
+	if len(routeKey) == 0{
+		if q, ok := t.queues[DEFAULT_KEY]; ok {
+			return []*queue{q}
+		} else {
+			queueName := t.generateQueueName(DEFAULT_KEY)
+			t.queues[DEFAULT_KEY] = NewQueue(queueName, DEFAULT_KEY, t.ctx, t)
+			return []*queue{t.queues[DEFAULT_KEY]}
+		}
+	}
 
 	var queues []*queue
 	for k, v := range t.queues {
 		if t.mode == ROUTE_KEY_MATCH_FULL {
-			if k == key {
+			if k == routeKey {
 				queues = append(queues, v)
 			}
 		} else {
-			if ok, _ := regexp.MatchString(key, k); ok {
+			if ok, _ := regexp.MatchString(routeKey, k); ok {
 				queues = append(queues, v)
 			}
 		}
@@ -552,32 +573,44 @@ func (t *Topic) getQueuesByRouteKey(key string) []*queue {
 	return queues
 }
 
-func (t *Topic) getQueueByBindKey(key string) *queue {
+// 根据绑定键获取队列
+func (t *Topic) getQueueByBindKey(bindKey string) *queue {
 	t.queueMux.Lock()
 	defer t.queueMux.Unlock()
 
-	if q, ok := t.queues[key]; ok {
+	if len(bindKey) == 0 {
+		bindKey = DEFAULT_KEY
+	}
+
+	if q, ok := t.queues[bindKey]; ok {
 		return q
 	} else {
 		return nil
 	}
 }
 
-func (t *Topic) getDeadQueueByBindKey(bindKey string) *queue {
+// 根据绑定键获取死信队列
+func (t *Topic) getDeadQueueByBindKey(bindKey string, createNotExist bool) *queue {
 	t.queueMux.Lock()
 	defer t.queueMux.Unlock()
 
+	if len(bindKey) == 0 {
+		bindKey = DEFAULT_KEY
+	}
 	if q, ok := t.deadQueues[bindKey]; ok {
 		return q
 	}
 
-	queueName := t.generateQueueName(fmt.Sprintf("%s_%s", bindKey, DEAD_QUEUE_FLAG))
-	t.deadQueues[bindKey] = NewQueue(queueName, bindKey, t.ctx, t)
+	if createNotExist {
+		queueName := t.generateQueueName(fmt.Sprintf("%s_%s", bindKey, DEAD_QUEUE_FLAG))
+		t.deadQueues[bindKey] = NewQueue(queueName, bindKey, t.ctx, t)
+		return t.deadQueues[bindKey]
+	}
 
-	return t.deadQueues[bindKey]
+	return nil
 }
 
-// 获取bucket堆积数量
+// 获取bucket堆积数量（延迟消息数量）
 func (t *Topic) getBucketNum() int {
 	var num int
 	err := t.dispatcher.db.View(func(tx *bolt.Tx) error {
