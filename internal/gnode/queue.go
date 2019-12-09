@@ -42,21 +42,19 @@ const MSG_FIX_LENGTH = 1 + 2 + 4
 const GROW_SIZE = 10 * 1024 * 1024
 const REWRITE_SIZE = 100 * 1024 * 1024
 
-var queueSavePath string
-
 type queue struct {
-	woffset  int64
-	roffset  int64
-	soffset  int64
-	filesize int64
-	num      int64
-	name     string
-	data     []byte
-	topic    *Topic
+	woffset  int64  // 写偏移量，用于记录当前队列已生成消息到哪个位置
+	roffset  int64  // 读偏移量，用于记录当前队列被消费到哪个位置
+	soffset  int64  // 扫描偏移量，用于处理过期消息
+	filesize int64  // 当前队列文件大小
+	num      int64  // 队列中消息数量，包括未消费或待确认两种状态的消息
+	name     string // 队列名称，由topic.name和queue.bindKey两部分组成
+	data     []byte // 内存映射文件
+	topic    *Topic // 所属topic
 	file     *os.File
 	ctx      *Context
-	bindKey  string
-	waitAck  map[uint64]int64
+	bindKey  string           //绑定键，topic.name_queue.bingKey是队列的唯一标识
+	waitAck  map[uint64]int64 // 等待确认消息，消息ID和消息位置的映射关系
 	sync.RWMutex
 }
 
@@ -116,7 +114,9 @@ func (q *queue) scan() ([]byte, error) {
 	// q.LogDebug(fmt.Sprintf("scan.offset:%v read.offset:%v write.offset:%v", q.soffset, q.roffset, q.woffset))
 
 	if q.soffset > REWRITE_SIZE {
-		q.rewrite()
+		if err := q.rewrite(); err != nil {
+			q.LogError(err)
+		}
 	}
 	if q.soffset == q.roffset {
 		q.Unlock()
@@ -135,6 +135,7 @@ func (q *queue) scan() ([]byte, error) {
 	// 当前的消息已被确认了,继续扫描下一条消息
 	if status == MSG_STATUS_FIN {
 		q.soffset += MSG_FIX_LENGTH + msgLen
+		atomic.AddInt64(&q.num, -1)
 		q.Unlock()
 		return q.scan()
 	}
@@ -148,11 +149,12 @@ func (q *queue) scan() ([]byte, error) {
 		return nil, ErrMessageNotExpire
 	}
 
-	// 已过期消息状态设置为已到期,已过期消息将重新添加到队列,等待再次被消费
+	// 已过期消息将重新添加到队列,等待再次被消费
 	binary.BigEndian.PutUint16(q.data[q.soffset+1:q.soffset+3], uint16(MSG_STATUS_EXPIRE))
 	msg := make([]byte, msgLen)
 	copy(msg, q.data[q.soffset+7:q.soffset+7+msgLen])
 	q.soffset += MSG_FIX_LENGTH + msgLen
+	atomic.AddInt64(&q.num, -1)
 
 	q.Unlock()
 	return msg, nil
@@ -168,11 +170,11 @@ func (q *queue) rewrite() error {
 	tempPath := fmt.Sprintf("%s/%s.temp.queue", q.ctx.Conf.DataSavePath, q.name)
 	f, err := os.OpenFile(tempPath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
-		log.Fatalln(err)
+		return err
 	}
 
 	pageSize := os.Getpagesize()
-	size := q.filesize - int64(q.soffset)
+	size := q.filesize - q.soffset
 	q.LogDebug(fmt.Sprintf("fileszie:%v,queue.soffset:%v,size:%v", q.filesize, q.soffset, size))
 
 	// 确保mmap大小是页面大小的倍数
@@ -314,10 +316,10 @@ func (q *queue) read(isAutoAck bool) ([]byte, error) {
 	msgLen := int64(binary.BigEndian.Uint32(q.data[q.roffset+3 : q.roffset+7]))
 	msg := make([]byte, msgLen)
 	copy(msg, q.data[q.roffset+7:q.roffset+7+msgLen])
-	atomic.AddInt64(&q.num, -1)
 
 	if isAutoAck {
 		binary.BigEndian.PutUint16(q.data[q.roffset+1:q.roffset+3], uint16(MSG_STATUS_FIN))
+		atomic.AddInt64(&q.num, -1)
 	} else {
 		binary.BigEndian.PutUint16(q.data[q.roffset+1:q.roffset+3], uint16(MSG_STATUS_WAIT))
 		binary.BigEndian.PutUint64(q.data[q.roffset+7:q.roffset+15], uint64(time.Now().Unix())+uint64(q.topic.msgTTR))

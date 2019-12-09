@@ -16,11 +16,11 @@ type topicData struct {
 	Name        string `json:"name"`
 	PopNum      int64  `json:"pop_num"`
 	PushNum     int64  `json:"push_num"`
+	DeadNum     int64  `json:"dead_num"`
 	QueueMsgNum int64  `json:"queue_msg_num"`
 	QueueNum    int    `json:"queue_num"`
 	DelayNum    int    `json:"delay_num"`
 	WaitAckNum  int    `json:"wait_ack_num"`
-	DeadNum     int    `json:"dead_num"`
 	StartTime   string `json:"start_time"`
 	IsAutoAck   bool   `json:"is_auto_ack"`
 }
@@ -156,7 +156,7 @@ func (h *HttpApi) Config(c *HttpServContext) {
 }
 
 // 获取指定topic统计信息
-// curl http://127.0.0.1:9504/getTopicStat?topic=xxx
+// curl "http://127.0.0.1:9504/getTopicStat?topic=ketang"
 func (h *HttpApi) GetTopicStat(c *HttpServContext) {
 	name := c.Get("topic")
 	if len(name) == 0 {
@@ -175,8 +175,8 @@ func (h *HttpApi) GetTopicStat(c *HttpServContext) {
 	data.QueueNum = len(t.queues)
 	data.PopNum = t.popNum
 	data.PushNum = t.pushNum
+	data.DeadNum = t.deadNum
 	data.DelayNum = t.getBucketNum()
-	data.DeadNum = t.getDeadNum()
 	data.IsAutoAck = t.isAutoAck
 	data.StartTime = t.startTime.Format("2006-01-02 15:04:05")
 
@@ -200,9 +200,9 @@ func (h *HttpApi) GetAllTopicStat(c *HttpServContext) {
 		data.Name = t.name
 		data.PopNum = t.popNum
 		data.PushNum = t.pushNum
+		data.DeadNum = t.deadNum
 		data.QueueNum = len(t.queues)
 		data.DelayNum = t.getBucketNum()
-		data.DeadNum = t.getDeadNum()
 		data.IsAutoAck = t.isAutoAck
 		data.StartTime = t.startTime.Format("2006-01-02 15:04:05")
 

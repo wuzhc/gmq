@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	DEAD_FLAG             = "_failure"
+	DEAD_QUEUE_FLAG       = "dead"
 	ROUTE_KEY_MATCH_FULL  = 1
 	ROUTE_KEY_MATCH_FUZZY = 2
 )
@@ -31,6 +31,7 @@ type Topic struct {
 	isAutoAck  bool
 	pushNum    int64
 	popNum     int64
+	deadNum    int64
 	startTime  time.Time
 	ctx        *Context
 	closed     bool
@@ -38,17 +39,20 @@ type Topic struct {
 	dispatcher *Dispatcher
 	exitChan   chan struct{}
 	queues     map[string]*queue
+	deadQueues map[string]*queue
 	waitAckMux sync.Mutex
 	queueMux   sync.Mutex
 	sync.Mutex
 }
 
 type TopicMeta struct {
-	Mode      int         `json:"mode"`
-	PopNum    int64       `json:"pop_num"`
-	PushNum   int64       `json:"push_num"`
-	IsAutoAck bool        `json:"is_auto_ack"`
-	Queues    []QueueMeta `json:"queues"`
+	Mode       int         `json:"mode"`
+	PopNum     int64       `json:"pop_num"`
+	PushNum    int64       `json:"push_num"`
+	DeadNum    int64       `json:"dead_num"`
+	IsAutoAck  bool        `json:"is_auto_ack"`
+	Queues     []QueueMeta `json:"queues"`
+	DeadQueues []QueueMeta `json:"dead_queues"`
 }
 
 type QueueMeta struct {
@@ -64,14 +68,15 @@ func NewTopic(name string, ctx *Context) *Topic {
 	t := &Topic{
 		ctx:        ctx,
 		name:       name,
-		msgTTR:     MSG_MAX_TTR,
-		msgRetry:   MSG_MAX_RETRY,
+		msgTTR:     ctx.Conf.MsgTTR,
+		msgRetry:   ctx.Conf.MsgMaxRetry,
 		mode:       ROUTE_KEY_MATCH_FUZZY,
-		isAutoAck:  true,
+		isAutoAck:  false,
 		exitChan:   make(chan struct{}),
 		dispatcher: ctx.Dispatcher,
 		startTime:  time.Now(),
 		queues:     make(map[string]*queue),
+		deadQueues: make(map[string]*queue),
 	}
 
 	t.init()
@@ -82,9 +87,6 @@ func NewTopic(name string, ctx *Context) *Topic {
 func (t *Topic) init() {
 	err := t.dispatcher.db.Update(func(tx *bolt.Tx) error {
 		if _, err := tx.CreateBucketIfNotExists([]byte(t.name)); err != nil {
-			return errors.New(fmt.Sprintf("create bucket: %s", err))
-		}
-		if _, err := tx.CreateBucketIfNotExists([]byte(t.name + DEAD_FLAG)); err != nil {
 			return errors.New(fmt.Sprintf("create bucket: %s", err))
 		}
 		return nil
@@ -119,6 +121,7 @@ func (t *Topic) init() {
 	t.mode = meta.Mode
 	t.popNum = meta.PopNum
 	t.pushNum = meta.PushNum
+	t.deadNum = meta.DeadNum
 	t.isAutoAck = meta.IsAutoAck
 
 	t.queueMux.Lock()
@@ -126,6 +129,11 @@ func (t *Topic) init() {
 
 	// restore queue meta data
 	for _, q := range meta.Queues {
+		// skip empty queue
+		if q.Num == 0 {
+			continue
+		}
+
 		queue := NewQueue(q.Name, q.BindKey, t.ctx, t)
 		queue.woffset = q.WriteOffset
 		queue.roffset = q.ReadOffset
@@ -133,6 +141,22 @@ func (t *Topic) init() {
 		queue.num = q.Num
 		queue.name = q.Name
 		t.queues[q.BindKey] = queue
+	}
+
+	// restore dead queue meta data
+	for _, q := range meta.DeadQueues {
+		// skip empty queue
+		if q.Num == 0 {
+			continue
+		}
+
+		queue := NewQueue(q.Name, q.BindKey, t.ctx, t)
+		queue.woffset = q.WriteOffset
+		queue.roffset = q.ReadOffset
+		queue.soffset = q.ScanOffset
+		queue.num = q.Num
+		queue.name = q.Name
+		t.deadQueues[q.BindKey] = queue
 	}
 }
 
@@ -167,12 +191,26 @@ func (t *Topic) exit() {
 		})
 	}
 
+	var deadQueues []QueueMeta
+	for k, q := range t.deadQueues {
+		deadQueues = append(deadQueues, QueueMeta{
+			Num:         q.num,
+			Name:        q.name,
+			BindKey:     k,
+			WriteOffset: q.woffset,
+			ReadOffset:  q.roffset,
+			ScanOffset:  q.soffset,
+		})
+	}
+
 	meta := TopicMeta{
-		PopNum:    t.popNum,
-		PushNum:   t.pushNum,
-		IsAutoAck: t.isAutoAck,
-		Queues:    queues,
-		Mode:      t.mode,
+		PopNum:     t.popNum,
+		PushNum:    t.pushNum,
+		DeadNum:    t.deadNum,
+		Mode:       t.mode,
+		IsAutoAck:  t.isAutoAck,
+		Queues:     queues,
+		DeadQueues: deadQueues,
 	}
 	data, err := json.Marshal(meta)
 	if err != nil {
@@ -254,25 +292,14 @@ func (t *Topic) pushMsgToBucket(dg *DelayMsg) error {
 	return err
 }
 
-// 死信队列
-// 规定:如果一条消息6次被消费后都未收到客户端确认,则会被添加到死信队列
-func (t *Topic) pushMsgToDeadBucket(msg *Msg) error {
-	return t.dispatcher.db.Update(func(tx *bolt.Tx) error {
-		name := t.name + DEAD_FLAG
-		_, err := tx.CreateBucketIfNotExists([]byte(name))
-		if err != nil {
-			return errors.New(fmt.Sprintf("create bucket: %s", err))
-		}
+func (t *Topic) pushMsgToDeadQueue(msg *Msg, bindKey string) error {
+	queue := t.getDeadQueueByBindKey(bindKey)
+	if err := queue.write(Encode(msg)); err != nil {
+		return err
+	}
 
-		bucket := tx.Bucket([]byte(name))
-		key := creatBucketKey(msg.Id, 0)
-		// t.LogInfo(fmt.Sprintf("%v-%v-%v write in bucket", delayTime, msgId, key))
-		if err := bucket.Put(key, Encode(msg)); err != nil {
-			return err
-		}
-
-		return nil
-	})
+	atomic.AddInt64(&t.deadNum, 1)
+	return nil
 }
 
 // 检索延迟消息
@@ -379,7 +406,7 @@ func (t *Topic) retrievalQueueExipreMsg() error {
 			msg.Retry = msg.Retry + 1 // incr retry number
 			if msg.Retry > uint16(t.msgRetry) {
 				t.LogDebug(fmt.Sprintf("msg.Id %v has been added to dead queue.", msg.Id))
-				if err := t.pushMsgToDeadBucket(msg); err != nil {
+				if err := t.pushMsgToDeadQueue(msg, queue.bindKey); err != nil {
 					t.LogError(err)
 					break
 				} else {
@@ -428,35 +455,22 @@ func (t *Topic) pop(bindKey string) (*Msg, error) {
 	return msg, nil
 }
 
-// 私信队列
-func (t *Topic) dead(num int) (msgs []*Msg, err error) {
-	err = t.dispatcher.db.Update(func(tx *bolt.Tx) error {
-		name := t.name + DEAD_FLAG
-		_, err := tx.CreateBucketIfNotExists([]byte(name))
-		if err != nil {
-			return errors.New(fmt.Sprintf("create bucket: %s", err))
-		}
+// 死信队列消费
+func (t *Topic) dead(bindKey string) (*Msg, error) {
+	queue := t.getDeadQueueByBindKey(bindKey)
+	data, err := queue.read(true)
+	if err != nil {
+		return nil, err
+	}
 
-		bucket := tx.Bucket([]byte(name))
-		if bucket.Stats().KeyN == 0 {
-			return nil
-		}
+	msg := Decode(data)
+	if msg.Id == 0 {
+		msg = nil
+		return nil, errors.New("message decode failed.")
+	}
 
-		c := bucket.Cursor()
-		for key, msg := c.First(); key != nil; key, msg = c.Next() {
-			if err := bucket.Delete(key); err != nil {
-				return err
-			}
-			msgs = append(msgs, Decode(msg))
-			if len(msgs) >= num {
-				break
-			}
-		}
-
-		return nil
-	})
-
-	return
+	atomic.AddInt64(&t.deadNum, -1)
+	return msg, nil
 }
 
 // 消息确认
@@ -489,12 +503,12 @@ func (t *Topic) set(configure *topicConfigure) error {
 	}
 
 	// 执行过期时间
-	if configure.msgTTR > 0 && configure.msgTTR < MSG_MAX_TTR {
+	if configure.msgTTR > 0 && configure.msgTTR < t.msgTTR {
 		t.msgTTR = configure.msgTTR
 	}
 
 	// 消息重试次数阀值
-	if configure.msgRetry > 0 && configure.msgRetry < MSG_MAX_RETRY {
+	if configure.msgRetry > 0 && configure.msgRetry < t.msgRetry {
 		t.msgRetry = configure.msgRetry
 	}
 
@@ -549,26 +563,37 @@ func (t *Topic) getQueueByBindKey(key string) *queue {
 	}
 }
 
+func (t *Topic) getDeadQueueByBindKey(bindKey string) *queue {
+	t.queueMux.Lock()
+	defer t.queueMux.Unlock()
+
+	if q, ok := t.deadQueues[bindKey]; ok {
+		return q
+	}
+
+	queueName := t.generateQueueName(fmt.Sprintf("%s_%s", bindKey, DEAD_QUEUE_FLAG))
+	t.deadQueues[bindKey] = NewQueue(queueName, bindKey, t.ctx, t)
+
+	return t.deadQueues[bindKey]
+}
+
 // 获取bucket堆积数量
 func (t *Topic) getBucketNum() int {
 	var num int
-	t.dispatcher.db.View(func(tx *bolt.Tx) error {
+	err := t.dispatcher.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket([]byte(t.name))
 		num = bucket.Stats().KeyN
 		return nil
 	})
+	if err != nil {
+		t.LogError(err)
+	}
+
 	return num
 }
 
-// 获取死信数量
-func (t *Topic) getDeadNum() int {
-	var num int
-	t.dispatcher.db.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket([]byte(t.name + DEAD_FLAG))
-		num = bucket.Stats().KeyN
-		return nil
-	})
-	return num
+func (t *Topic) generateQueueName(bindKey string) string {
+	return fmt.Sprintf("%s_%s", t.name, bindKey)
 }
 
 func (t *Topic) LogError(msg interface{}) {

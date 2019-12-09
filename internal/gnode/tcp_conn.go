@@ -216,6 +216,7 @@ func (c *TcpConn) MPUB(params [][]byte) error {
 	return nil
 }
 
+// 消费消息
 // pop <topic_name> <bind_key>\n
 func (c *TcpConn) POP(params [][]byte) error {
 	if len(params) != 2 {
@@ -236,6 +237,7 @@ func (c *TcpConn) POP(params [][]byte) error {
 	return nil
 }
 
+// 确认消息
 // ack <message_id> <topic> <bind_key>\n
 func (c *TcpConn) ACK(params [][]byte) error {
 	if len(params) != 3 {
@@ -255,26 +257,24 @@ func (c *TcpConn) ACK(params [][]byte) error {
 	return nil
 }
 
-// 消费死信
-// dead <topic_name> <message_number>\n
+// 死信队列消费
+// dead <topic_name> <bind_key>\n
 func (c *TcpConn) DEAD(params [][]byte) error {
 	if len(params) != 2 {
-		return errors.New("dead params is error")
+		return errors.New("dead command params is error")
 	}
 
 	topic := string(params[0])
-	num := params[1]
-	n, _ := strconv.Atoi(string(num))
-	msgs, err := c.serv.ctx.Dispatcher.dead(topic, n)
+	bindKey := string(params[1])
+	msg, err := c.serv.ctx.Dispatcher.dead(topic, bindKey)
+
 	if err != nil {
-		return err
-	}
-	if len(msgs) == 0 {
-		c.RespErr(errors.New("no message"))
-		return nil
+		c.RespErr(err)
+	} else {
+		c.RespMsg(msg)
 	}
 
-	c.RespMsgs(msgs)
+	msg = nil
 	return nil
 }
 

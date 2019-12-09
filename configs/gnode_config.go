@@ -51,7 +51,7 @@ func (c *GnodeConfig) Validate() error {
 		return errors.New("nodeId must be between 1 and 1024.")
 	}
 	if c.LogLevel > 4 || c.LogLevel < 0 {
-		return errors.New("logLevel must be between 1 and 5.")
+		return errors.New("logLevel must be between 0 and 4.")
 	}
 	if c.MsgMaxPushNum > 1000 || c.MsgMaxPushNum <= 0 {
 		return errors.New("MsgMaxPushNum must be between 1 and 1000.")

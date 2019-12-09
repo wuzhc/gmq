@@ -27,8 +27,11 @@ func (p *program) Start(s service.Service) error {
 		p.gn.Run()
 	}()
 
+	// listen pprof
 	go func() {
-		http.ListenAndServe("0.0.0.0:8877", nil)
+		if err := http.ListenAndServe("0.0.0.0:8877", nil); err != nil {
+			log.Println(err)
+		}
 	}()
 
 	return nil
@@ -64,71 +67,73 @@ func main() {
 	}
 
 	if len(os.Args) > 1 {
+		var e error
 		switch os.Args[1] {
 		case "install":
 			if err := s.Install(); err != nil {
-				logger.Error(err)
+				e = logger.Error(err)
 			} else {
-				logger.Info("gnode.service install success!")
+				e = logger.Info("gnode.service install success!")
 			}
 			if err := s.Start(); err != nil {
-				logger.Error(err)
+				e = logger.Error(err)
 			} else {
-				logger.Info("gnode.service start success!")
+				e = logger.Info("gnode.service start success!")
 			}
-			return
 		case "uninstall":
 			if err := s.Stop(); err != nil {
-				logger.Error(err)
+				e = logger.Error(err)
 			} else {
-				logger.Info("gnode.service stop success!")
+				e = logger.Info("gnode.service stop success!")
 			}
 			if err := s.Uninstall(); err != nil {
-				logger.Error(err)
+				e = logger.Error(err)
 			} else {
-				logger.Info("gnode.service uninstall success!")
+				e = logger.Info("gnode.service uninstall success!")
 			}
-			return
 		case "start":
 			if err := s.Start(); err != nil {
-				logger.Error(err)
+				e = logger.Error(err)
 			} else {
-				logger.Info("gnode.service start success!")
+				e = logger.Info("gnode.service start success!")
 			}
-			return
 		case "stop":
 			if err := s.Stop(); err != nil {
-				logger.Error(err)
+				e = logger.Error(err)
 			} else {
-				logger.Info("gnode.service stop success!")
+				e = logger.Info("gnode.service stop success!")
 			}
-			return
 		case "restart":
 			if err := s.Stop(); err != nil {
-				logger.Error(err)
+				e = logger.Error(err)
 			} else {
-				logger.Info("gnode.service stop success!")
+				e = logger.Info("gnode.service stop success!")
 			}
 			if err := s.Start(); err != nil {
-				logger.Error(err)
+				e = logger.Error(err)
 			} else {
-				logger.Info("gnode.service start success!")
+				e = logger.Info("gnode.service start success!")
 			}
-			return
 		case "status":
 			if status, err := s.Status(); err != nil {
-				logger.Error(err)
+				e = logger.Error(err)
 			} else {
 				if int(status) == 1 {
-					logger.Info("gnode.service is running.")
+					e = logger.Info("gnode.service is running.")
 				} else {
-					logger.Info("gnode.service is stop.")
+					e = logger.Info("gnode.service is stop.")
 				}
 			}
-			return
+		default:
+			goto Run
+		}
+
+		if e != nil {
+			log.Fatalln(e)
 		}
 	}
 
+Run:
 	if err = s.Run(); err != nil {
 		log.Fatalln(err)
 	}

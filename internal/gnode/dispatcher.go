@@ -250,19 +250,15 @@ func (d *Dispatcher) push(name string, routeKey string, data []byte, delay int) 
 }
 
 // 消息消费
-func (d *Dispatcher) pop(name, routeKey string) (*Msg, error) {
+func (d *Dispatcher) pop(name, bindKey string) (*Msg, error) {
 	topic := d.GetTopic(name)
-	return topic.pop(routeKey)
+	return topic.pop(bindKey)
 }
 
 // 死信队列
-func (d *Dispatcher) dead(name string, num int) ([]*Msg, error) {
-	if num == 0 {
-		return nil, errors.New("num is empty")
-	}
-
+func (d *Dispatcher) dead(name, bindKey string) (*Msg, error) {
 	topic := d.GetTopic(name)
-	return topic.dead(num)
+	return topic.dead(bindKey)
 }
 
 // 消费确认
