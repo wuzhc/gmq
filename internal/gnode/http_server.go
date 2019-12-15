@@ -216,7 +216,7 @@ func (c *HttpServContext) GetDefaultInt(key string, def int) int {
 }
 
 func (c *HttpServContext) Post(key string) string {
-	return c.r.PostFormValue(key)
+	return c.r.FormValue(key)
 }
 
 func (s *HttpServ) LogError(msg interface{}) {

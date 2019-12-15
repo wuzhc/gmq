@@ -132,7 +132,7 @@ func (q *queue) scan() ([]byte, error) {
 	status := binary.BigEndian.Uint16(q.data[q.soffset+1 : q.soffset+3])
 	msgLen := int64(binary.BigEndian.Uint32(q.data[q.soffset+3 : q.soffset+7]))
 
-	// 当前的消息已被确认了,继续扫描下一条消息
+	// scan next message when the current message is finish
 	if status == MSG_STATUS_FIN {
 		q.soffset += MSG_FIX_LENGTH + msgLen
 		atomic.AddInt64(&q.num, -1)
@@ -143,13 +143,13 @@ func (q *queue) scan() ([]byte, error) {
 	expireTime := binary.BigEndian.Uint64(q.data[q.soffset+7 : q.soffset+15])
 	q.LogDebug(fmt.Sprintf("msg.expire:%v now:%v", expireTime, time.Now().Unix()))
 
-	// 队列中未有消息到期
+	// has not expire message
 	if expireTime > uint64(time.Now().Unix()) {
 		q.Unlock()
 		return nil, ErrMessageNotExpire
 	}
 
-	// 已过期消息将重新添加到队列,等待再次被消费
+	// message will be consumed if it is expired
 	binary.BigEndian.PutUint16(q.data[q.soffset+1:q.soffset+3], uint16(MSG_STATUS_EXPIRE))
 	msg := make([]byte, msgLen)
 	copy(msg, q.data[q.soffset+7:q.soffset+7+msgLen])

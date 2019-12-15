@@ -26,9 +26,9 @@ type Gnode struct {
 	version  string
 	running  int32
 	exitChan chan struct{}
-	ctx      *Context
 	wg       utils.WaitGroupWrapper
 	cfg      *configs.GnodeConfig
+	ctx      *Context
 	etcd     etcd
 }
 
@@ -148,7 +148,6 @@ func (gn *Gnode) keepAlive() (<-chan *clientv3.LeaseKeepAliveResponse, error) {
 	}
 	gn.etcd.leaseId = resp.ID
 
-	// 包装注册内容信息
 	key := fmt.Sprintf("/gmq/node-%d", gn.cfg.NodeId)
 	info := make(map[string]string)
 	info["tcp_addr"] = gn.cfg.TcpServAddr

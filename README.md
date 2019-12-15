@@ -39,8 +39,8 @@ gmq是一个简单的推拉模型,如图:
 ### 2.1 启动etcd
 gmq节点启动需要向etcd注册节点信息，所以需要先启动etcd，安装etcd过程很简单，可以在网上找到对应的教程，安装成功后启动命令如下：
 ```bash
-# 最简单启动命令，指定etcd名称为gmq-register
-etcd --name gmq-register
+# 启动etcd
+./etcd 
 ```
 
 ### 2.2 启动gmq节点
@@ -54,6 +54,7 @@ export GOPROXY=https://goproxy.io
 ```bash
 # clone项目
 git clone -b gmq-dev-v3  https://github.com/wuzhc/gmq.git 
+
 # 进入gmq目录
 cd gmq
 ```
@@ -62,8 +63,10 @@ cd gmq
 ```bash
 # 将coreos/go-systemd下载到GOPATH路径下
 git clone https://github.com/coreos/go-systemd.git ${GOPATH}/src/github.com/coreos/go-systemd
+
 # 修改go.mod文件
 vi go.mod
+
 # 替换replace的/data/wwwroot/go修改为你的电脑GOPATH的实际路径，/data/wwwroot/go是我电脑的GOPATH路径
 replace github.com/coreos/go-systemd => /data/wwwroot/go/src/github.com/coreos/go-systemd
 ```
@@ -73,41 +76,19 @@ replace github.com/coreos/go-systemd => /data/wwwroot/go/src/github.com/coreos/g
 # 使用go mod安装需要的依赖，并将依赖包移动到gmq根目录下的vendor目录下，例如gmq/vendor
 go mod tidy
 go mod vendor
+
 # 编译
 make build
+
 # 启动节点
 # http_addr 指定http服务IP和端口
 # tcp_addr 指定tcp服务IP和端口
 # node_id节点ID,每个节点都是一个唯一值,范围在1到1024之间
 # node_weight节点权重,用于多节点选择节点的依据
-build/gnode -http_addr=":9504" -tcp_addr=":9503" -etcd_endpoints="127.0.0.1:2379,127.0.0.1:2479" -node_id=1 -node_weight=1 
+build/gnode -http_addr=":9504" -tcp_addr=":9503" -etcd_endpoints="127.0.0.1:2379" -node_id=1 -node_weight=1 
+
 # 或者使用`go run`直接运行源码
-go run cmd/gnode/main.go -http_addr=":9504" -tcp_addr=":9503" -etcd_endpoints="127.0.0.1:2379,127.0.0.1:2479" -node_id=1 -node_weight=1 
-```
-
-### 2.3 配置启动参数
-上面启动节点时，命令行可以指定参数，除此之外，还可以直接指定配置文件,命令行参数为`-config_file`,如下:
-```bash
-build/gnode -config_file="conf.ini"
-```
-配置文件`conf.ini`,参考
-- gnode配置文件 https://github.com/wuzhc/gmq/blob/gmq-dev-v3/cmd/gnode/conf.ini
-
-### 2.4 添加到系统service服务
-添加到系统service服务，方便线上环境操作
-```bash
-# 安装node服务,文件位于`/etc/systemd/system/gmq-node.service`
-build/gnode install
-# 卸载node服务
-build/gnode uninstall
-# 启动node服务
-build/gnode start
-# 停止node服务
-build/gnode stop
-# 重启node服务
-build/gnode restart
-# 查看node运行状态
-build/gnode status
+go run cmd/gnode/main.go -http_addr=":9504" -tcp_addr=":9503" -etcd_endpoints="127.0.0.1:2379" -node_id=1 -node_weight=1 
 ```
 
 ## 3. 测试
@@ -167,5 +148,4 @@ gmq提供了一个golang版本的客户端,目前还只是demo级的,参考[gmq-
 - 没有应用级别的客户端,目前只是一个demo级别的例子,并且没有失败重试功能
 - 消息存在丢失情况,在内存映射的文件写数据,会延迟写到磁盘文件,除非手动触发`msync`系统调用,考虑做镜像节点
 - 提供完善的消息追踪功能,目前无法根据消息ID在队列中定位,因为目前没有消息ID和offset建立的map关系
-- bbolt写入速度慢问题，当gmq有大量消息超过最大重试次数时会写入到死信队列，因为写入速度很慢导致不能正常处理其他正常业务
 

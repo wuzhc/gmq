@@ -72,7 +72,7 @@ func NewTopic(name string, ctx *Context) *Topic {
 		msgTTR:     ctx.Conf.MsgTTR,
 		msgRetry:   ctx.Conf.MsgMaxRetry,
 		mode:       ROUTE_KEY_MATCH_FUZZY,
-		isAutoAck:  false,
+		isAutoAck:  true,
 		exitChan:   make(chan struct{}),
 		dispatcher: ctx.Dispatcher,
 		startTime:  time.Now(),
@@ -236,7 +236,6 @@ func (t *Topic) push(msg *Msg, routeKey string) error {
 	}
 
 	if msg.Delay > 0 {
-		// 记录延迟消息需要被发送的queue
 		bindKeys := make([]string, len(queues))
 		for i, q := range queues {
 			bindKeys[i] = q.bindKey
@@ -327,8 +326,6 @@ func (t *Topic) retrievalBucketExpireMsg() error {
 		now := time.Now().Unix()
 		c := bucket.Cursor()
 		for key, data := c.First(); key != nil; key, data = c.Next() {
-			// 因为消息是有序的,当一个消息的到期时间比当前时间大,
-			// 说明之后信息都还未到期,此时可以退出检索了
 			delayTime, _ := parseBucketKey(key)
 			if now < int64(delayTime) {
 				break
@@ -402,13 +399,11 @@ func (t *Topic) retrievalQueueExipreMsg() error {
 				break
 			}
 
-			// 移除消息等待状态
 			if err := queue.removeWait(msg.Id); err != nil {
 				t.LogError(err)
 				break
 			}
 
-			// 消息重新消费次数超过阀值，则将消息添加到死信队列
 			msg.Retry = msg.Retry + 1 // incr retry number
 			if msg.Retry > uint16(t.msgRetry) {
 				t.LogDebug(fmt.Sprintf("msg.Id %v has been added to dead queue.", msg.Id))
@@ -420,7 +415,7 @@ func (t *Topic) retrievalQueueExipreMsg() error {
 				}
 			}
 
-			// 消息到期,重新添加到队列等待再次被消费
+			// message is expired, and will be consumed again
 			if err := queue.write(Encode(msg)); err != nil {
 				t.LogError(err)
 				break
@@ -498,26 +493,26 @@ func (t *Topic) set(configure *topicConfigure) error {
 	t.Lock()
 	defer t.Unlock()
 
-	// 是否自动确认消息
+	// auto-ack
 	if configure.isAutoAck == 1 {
 		t.isAutoAck = true
 	} else {
 		t.isAutoAck = false
 	}
 
-	// 消息路由模式
+	// route mode
 	if configure.mode == ROUTE_KEY_MATCH_FULL {
 		t.mode = ROUTE_KEY_MATCH_FULL
 	} else if configure.mode == ROUTE_KEY_MATCH_FUZZY {
 		t.mode = ROUTE_KEY_MATCH_FUZZY
 	}
 
-	// 执行过期时间
+	// ttr
 	if configure.msgTTR > 0 && configure.msgTTR < t.msgTTR {
 		t.msgTTR = configure.msgTTR
 	}
 
-	// 消息重试次数阀值
+	// retry
 	if configure.msgRetry > 0 && configure.msgRetry < t.msgRetry {
 		t.msgRetry = configure.msgRetry
 	}
