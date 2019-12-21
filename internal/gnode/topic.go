@@ -542,7 +542,7 @@ func (t *Topic) getQueuesByRouteKey(routeKey string) []*queue {
 	defer t.queueMux.Unlock()
 
 	// use default key when routeKey is empty
-	if len(routeKey) == 0{
+	if len(routeKey) == 0 {
 		if q, ok := t.queues[DEFAULT_KEY]; ok {
 			return []*queue{q}
 		} else {

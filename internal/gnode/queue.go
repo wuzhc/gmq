@@ -42,6 +42,10 @@ const MSG_FIX_LENGTH = 1 + 2 + 4
 const GROW_SIZE = 10 * 1024 * 1024
 const REWRITE_SIZE = 100 * 1024 * 1024
 
+var (
+	ErrQueueNoMessage = errors.New("no message")
+)
+
 type queue struct {
 	woffset  int64  // 写偏移量，用于记录当前队列已生成消息到哪个位置
 	roffset  int64  // 读偏移量，用于记录当前队列被消费到哪个位置
@@ -304,7 +308,7 @@ func (q *queue) read(isAutoAck bool) ([]byte, error) {
 
 	msgOffset := q.roffset
 	if q.roffset == q.woffset {
-		return nil, errors.New("no message")
+		return nil, ErrQueueNoMessage
 	}
 
 	// 消息结构 flag(1-byte) + status(2-bytes) + msg_len(4-bytes) + msg(n-bytes)
