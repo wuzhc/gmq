@@ -40,7 +40,7 @@ type etcd struct {
 func New(cfg *configs.GnodeConfig) *Gnode {
 	return &Gnode{
 		cfg:      cfg,
-		version:  "1.1",
+		version:  "2.0",
 		exitChan: make(chan struct{}),
 	}
 }
