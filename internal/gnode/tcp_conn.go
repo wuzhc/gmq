@@ -21,6 +21,7 @@ const (
 	RESP_MESSAGE = 101
 	RESP_ERROR   = 102
 	RESP_RESULT  = 103
+	RESP_CHANNEL = 104
 )
 
 type TcpConn struct {
@@ -43,28 +44,30 @@ type TcpConn struct {
 func (c *TcpConn) Handle() {
 	defer c.LogInfo("tcp connection handle exit.")
 
-	// todo make be error
-	go func() {
+	// 监控系统退出
+	c.wg.Wrap(func() {
 		select {
 		case <-c.serv.exitChan:
-			c.conn.Close()
+			_ = c.conn.Close()
 		case <-c.exitChan:
 			return
 		}
-	}()
+	})
 
 	var buf bytes.Buffer
 	for {
 		var err error
-		var t time.Time
-		c.conn.SetDeadline(t)
+		if err := c.conn.SetDeadline(time.Time{}); err != nil {
+			c.LogError(fmt.Sprintf("set deadlie failed, %s", err))
+			break
+		}
 
 		line, isPrefix, err := c.reader.ReadLine()
 		if err != nil {
 			if err == io.EOF {
 				c.LogWarn("closed.")
 			} else {
-				c.LogError(err)
+				c.LogError(fmt.Sprintf("connection error, %s", err))
 			}
 			break
 		}
@@ -103,6 +106,10 @@ func (c *TcpConn) Handle() {
 			err = c.SET(params)
 		case bytes.Equal(cmd, []byte("queue")):
 			err = c.DECLAREQUEUE(params) // declare queue
+		case bytes.Equal(cmd, []byte("subscribe")):
+			err = c.SUBSCRIBE(params)
+		case bytes.Equal(cmd, []byte("publish")):
+			err = c.PUBLISH(params)
 		default:
 			err = errors.New(fmt.Sprintf("unkown cmd: %s", cmd))
 		}
@@ -116,7 +123,7 @@ func (c *TcpConn) Handle() {
 
 	// force close conn
 	time.Sleep(2 * time.Second)
-	c.conn.Close()
+	_ = c.conn.Close()
 	close(c.exitChan)
 }
 
@@ -343,6 +350,56 @@ func (c *TcpConn) DECLAREQUEUE(params [][]byte) error {
 	return nil
 }
 
+// subscribe channel
+// subscribe <channel_name> \n
+func (c *TcpConn) SUBSCRIBE(params [][]byte) error {
+	if len(params) != 1 {
+		return errors.New("params is error")
+	}
+
+	channelName := string(params[0])
+	if len(channelName) == 0 {
+		c.RespErr(fmt.Errorf("channel name is empty"))
+		return nil
+	}
+
+	if err := c.serv.ctx.Dispatcher.subscribe(channelName, c); err != nil {
+		c.RespErr(err)
+		return nil
+	}
+
+	c.RespRes("ok")
+	return nil
+}
+
+// publish message to channel
+// publish <channel_name> <message>\n
+func (c *TcpConn) PUBLISH(params [][]byte) error {
+	if len(params) != 2 {
+		return errors.New("params is error")
+	}
+
+	channelName := string(params[0])
+	if len(channelName) == 0 {
+		c.RespErr(fmt.Errorf("channel name is empty"))
+		return nil
+	}
+
+	message := params[1]
+	if len(message) == 0 {
+		c.RespErr(fmt.Errorf("message is empty"))
+		return nil
+	}
+
+	if err := c.serv.ctx.Dispatcher.publish(channelName, message); err != nil {
+		c.RespErr(err)
+		return nil
+	}
+
+	c.RespRes("ok")
+	return nil
+}
+
 func (c *TcpConn) Response(respType int16, respData []byte) {
 	var err error
 
@@ -381,27 +438,6 @@ func (c *TcpConn) RespMsg(msg *Msg) bool {
 	msgData.Id = strconv.FormatUint(msg.Id, 10)
 
 	data, err := json.Marshal(msgData)
-	if err != nil {
-		c.LogError(err)
-		return false
-	}
-
-	c.Response(RESP_MESSAGE, data)
-	return true
-}
-
-func (c *TcpConn) RespMsgs(msgs []*Msg) bool {
-	var v []RespMsgData
-	for _, msg := range msgs {
-		msgData := RespMsgData{}
-		msgData.Body = string(msg.Body)
-		msgData.Retry = msg.Retry
-		msgData.Id = strconv.FormatUint(msg.Id, 10)
-		v = append(v, msgData)
-		msg = nil
-	}
-
-	data, err := json.Marshal(v)
 	if err != nil {
 		c.LogError(err)
 		return false

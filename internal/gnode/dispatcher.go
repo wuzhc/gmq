@@ -11,22 +11,18 @@ import (
 	"github.com/wuzhc/gmq/pkg/utils"
 )
 
-var (
-	ErrBucketNum      = errors.New("The number of buckets must be greater then 0")
-	ErrTTRBucketNum   = errors.New("The number of TTRBuckets must be greater then 0")
-	ErrDispacherNoRun = errors.New("Dispacher is not running")
-)
-
 type Dispatcher struct {
-	ctx       *Context
-	db        *bolt.DB
-	wg        utils.WaitGroupWrapper
-	closed    bool
-	topics    map[string]*Topic
-	poolSize  int
-	snowflake *utils.Snowflake
-	exitChan  chan struct{}
-	sync.RWMutex
+	ctx        *Context
+	db         *bolt.DB
+	wg         utils.WaitGroupWrapper
+	closed     bool
+	topics     map[string]*Topic
+	channels   map[string]*Channel
+	poolSize   int
+	snowflake  *utils.Snowflake
+	exitChan   chan struct{}
+	channelMux sync.RWMutex
+	topicMux   sync.RWMutex
 }
 
 func NewDispatcher(ctx *Context) *Dispatcher {
@@ -46,6 +42,7 @@ func NewDispatcher(ctx *Context) *Dispatcher {
 		ctx:       ctx,
 		snowflake: sn,
 		topics:    make(map[string]*Topic),
+		channels:  make(map[string]*Channel),
 		exitChan:  make(chan struct{}),
 	}
 
@@ -63,55 +60,20 @@ func (d *Dispatcher) Run() {
 	}
 }
 
-// 退出dispatcher
+// exit dispatcher
 func (d *Dispatcher) exit() {
 	d.closed = true
+	_ = d.db.Close()
 	close(d.exitChan)
+
 	for _, t := range d.topics {
 		t.exit()
 	}
+	for _, c := range d.channels {
+		c.exit()
+	}
 
 	d.wg.Wait()
-	d.db.Close()
-}
-
-// 获取指定名称topic
-// 如果不存在topic,将会创建一个topic实例
-func (d *Dispatcher) GetTopic(name string) *Topic {
-	d.Lock()
-	defer d.Unlock()
-
-	if t, ok := d.topics[name]; ok {
-		return t
-	}
-
-	t := NewTopic(name, d.ctx)
-	d.topics[name] = t
-	return t
-}
-
-// 获取当前存在的topic
-func (d *Dispatcher) GetExistTopic(name string) (*Topic, error) {
-	d.Lock()
-	defer d.Unlock()
-
-	if t, ok := d.topics[name]; ok {
-		return t, nil
-	} else {
-		return nil, errors.New("topic is not exist")
-	}
-}
-
-// 获取所有topic
-func (d *Dispatcher) GetTopics() []*Topic {
-	d.RLock()
-	defer d.RUnlock()
-
-	var topics []*Topic
-	for _, t := range d.topics {
-		topics = append(topics, t)
-	}
-	return topics
 }
 
 // 定时扫描各个topic.queue延迟消息
@@ -233,6 +195,67 @@ func (d *Dispatcher) resizePool(topicNum int, workCh chan *Topic, closeCh chan i
 	}
 }
 
+// get topic
+// create topic if it is not exist
+func (d *Dispatcher) GetTopic(name string) *Topic {
+	d.topicMux.RLock()
+	if t, ok := d.topics[name]; ok {
+		d.topicMux.RUnlock()
+		return t
+	} else {
+		d.topicMux.RUnlock()
+	}
+
+	d.topicMux.Lock()
+	t := NewTopic(name, d.ctx)
+	d.topics[name] = t
+	d.topicMux.Unlock()
+	return t
+}
+
+// get topic
+// returns error when it is not exist
+func (d *Dispatcher) GetExistTopic(name string) (*Topic, error) {
+	d.topicMux.RLock()
+	defer d.topicMux.RUnlock()
+
+	if t, ok := d.topics[name]; ok {
+		return t, nil
+	} else {
+		return nil, errors.New("topic is not exist")
+	}
+}
+
+// get all topics
+func (d *Dispatcher) GetTopics() []*Topic {
+	d.topicMux.RLock()
+	defer d.topicMux.RUnlock()
+
+	var topics []*Topic
+	for _, t := range d.topics {
+		topics = append(topics, t)
+	}
+	return topics
+}
+
+// get channel
+// create channel if is not exist
+func (d *Dispatcher) GetChannel(name string) *Channel {
+	d.channelMux.RLock()
+	if c, ok := d.channels[name]; ok {
+		d.channelMux.RUnlock()
+		return c
+	} else {
+		d.channelMux.RUnlock()
+	}
+
+	d.channelMux.Lock()
+	c := NewChannel(name, d.ctx)
+	d.channels[name] = c
+	d.channelMux.Unlock()
+	return c
+}
+
 // 消息推送
 // 每一条消息都需要dispatcher统一分配msg.Id
 func (d *Dispatcher) push(name string, routeKey string, data []byte, delay int) (uint64, error) {
@@ -249,33 +272,45 @@ func (d *Dispatcher) push(name string, routeKey string, data []byte, delay int) 
 	return msgId, err
 }
 
-// 消息消费
+// consume message
 func (d *Dispatcher) pop(name, bindKey string) (*Msg, error) {
 	topic := d.GetTopic(name)
 	return topic.pop(bindKey)
 }
 
-// 死信队列
+// consume dead message
 func (d *Dispatcher) dead(name, bindKey string) (*Msg, error) {
 	topic := d.GetTopic(name)
 	return topic.dead(bindKey)
 }
 
-// 消费确认
+// ack message
 func (d *Dispatcher) ack(name string, msgId uint64, bindKey string) error {
 	topic := d.GetTopic(name)
 	return topic.ack(msgId, bindKey)
 }
 
-// 设置topic配置
+// config
 func (d *Dispatcher) set(name string, configure *topicConfigure) error {
 	topic := d.GetTopic(name)
 	return topic.set(configure)
 }
 
+// declare queue
 func (d *Dispatcher) declareQueue(queueName, bindKey string) error {
 	topic := d.GetTopic(queueName)
 	return topic.delcareQueue(bindKey)
+}
+
+// subscribe channel
+func (d *Dispatcher) subscribe(channelName string, conn *TcpConn) error {
+	channel := d.GetChannel(channelName)
+	return channel.addConn(conn)
+}
+
+func (d *Dispatcher) publish(channelName string, msg []byte) error {
+	channel := d.GetChannel(channelName)
+	return channel.publish(msg)
 }
 
 func (d *Dispatcher) LogError(msg ...interface{}) {
