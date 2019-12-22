@@ -32,7 +32,7 @@ func NewChannel(key string, ctx *Context) *Channel {
 
 // exit channel
 func (c *Channel) exit() {
-	close(c.exitChan)
+	close(c.exitChan) // todo 需要通知dispatcher删除
 	c.wg.Wait()
 }
 
@@ -92,7 +92,7 @@ func (c *Channel) distribute() {
 	for {
 		select {
 		case <-c.exitChan:
-			c.LogInfo(fmt.Sprintf("channel %s has distribute.", c.key))
+			c.LogInfo(fmt.Sprintf("channel %s has exit distribute.", c.key))
 			return
 		case msg := <-c.pushMsgChan:
 			c.RLock()

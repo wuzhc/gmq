@@ -105,7 +105,7 @@ func (c *TcpConn) Handle() {
 		case bytes.Equal(cmd, []byte("set")):
 			err = c.SET(params)
 		case bytes.Equal(cmd, []byte("queue")):
-			err = c.DECLAREQUEUE(params) // declare queue
+			err = c.DECLAREQUEUE(params)
 		case bytes.Equal(cmd, []byte("subscribe")):
 			err = c.SUBSCRIBE(params)
 		case bytes.Equal(cmd, []byte("publish")):
