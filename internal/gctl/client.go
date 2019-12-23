@@ -314,7 +314,8 @@ func (c *Client) Subscribe(channel string) error {
 }
 
 // 发布消息
-// publish <channel_name> <message>\n
+// publish <channel_name>\n
+// <message_len> <message>
 func (c *Client) Publish(channel, message string) error {
 	if len(channel) == 0 {
 		return ErrTopicChannel
@@ -323,12 +324,21 @@ func (c *Client) Publish(channel, message string) error {
 	var params [][]byte
 	params = append(params, []byte("publish"))
 	params = append(params, []byte(channel))
-	params = append(params, []byte(message))
 	line := bytes.Join(params, []byte(" "))
 	if _, err := c.conn.Write(line); err != nil {
 		return err
 	}
 	if _, err := c.conn.Write([]byte{'\n'}); err != nil {
+		return err
+	}
+
+	bodylen := make([]byte, 4)
+	body := []byte(message)
+	binary.BigEndian.PutUint32(bodylen, uint32(len(body)))
+	if _, err := c.conn.Write(bodylen); err != nil {
+		return err
+	}
+	if _, err := c.conn.Write([]byte(body)); err != nil {
 		return err
 	}
 

@@ -41,8 +41,6 @@ type TcpConn struct {
 // 一种是协议解析完成,但是执行业务的时候失败,此时server不需要断开连接,
 // 它可以正常执行下个命令,所以应该由客户端自己决定是否关闭连接
 func (c *TcpConn) Handle() {
-	defer c.LogInfo(fmt.Sprintf("tcp connection %s handle exit.", c.conn.RemoteAddr()))
-
 	// 监控系统退出
 	c.wg.Wrap(func() {
 		select {
@@ -377,10 +375,11 @@ func (c *TcpConn) SUBSCRIBE(params [][]byte) (int16, []byte, error) {
 }
 
 // publish message to channel
-// publish <channel_name> <message>\n
+// publish <channel_name>\n
+// <message_len> <message>
 func (c *TcpConn) PUBLISH(params [][]byte) (int16, []byte, error) {
-	if len(params) != 2 {
-		return RESP_ERROR, nil, NewFatalClientErr(ErrParams, "2 parameters required")
+	if len(params) != 1 {
+		return RESP_ERROR, nil, NewFatalClientErr(ErrParams, "1 parameters required")
 	}
 
 	channelName := string(params[0])
@@ -388,12 +387,20 @@ func (c *TcpConn) PUBLISH(params [][]byte) (int16, []byte, error) {
 		return RESP_ERROR, nil, NewFatalClientErr(ErrChannelEmpty, "channel name required")
 	}
 
-	message := params[1]
-	if len(message) == 0 {
-		return RESP_ERROR, nil, NewFatalClientErr(ErrMsgEmpty, "message required")
+	bodylenBuf := make([]byte, 4)
+	_, err := io.ReadFull(c.reader, bodylenBuf)
+	if err != nil {
+		return RESP_ERROR, nil, NewFatalClientErr(ErrReadConn, err.Error())
 	}
 
-	if err := c.serv.ctx.Dispatcher.publish(channelName, message); err != nil {
+	bodylen := int(binary.BigEndian.Uint32(bodylenBuf))
+	body := make([]byte, bodylen)
+	_, err = io.ReadFull(c.reader, body)
+	if err != nil {
+		return RESP_ERROR, nil, NewFatalClientErr(ErrReadConn, err.Error())
+	}
+
+	if err := c.serv.ctx.Dispatcher.publish(channelName, body); err != nil {
 		return RESP_ERROR, nil, NewClientErr(ErrPublish, err.Error())
 	} else {
 		return RESP_RESULT, []byte{'o', 'k'}, nil
