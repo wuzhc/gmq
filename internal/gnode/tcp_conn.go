@@ -34,12 +34,6 @@ type TcpConn struct {
 }
 
 // <cmd_name> <param_1> ... <param_n>\n
-// 涉及到两种错误
-// 一种是协议解析出错,在一个命令出错之后,连接可能存在数据未读取完毕,
-// 例如推送pub由两个命令行组成,当第一个命令行解析出错时,第二个命令行
-// 还未读取,此时应该由server主动关闭连接
-// 一种是协议解析完成,但是执行业务的时候失败,此时server不需要断开连接,
-// 它可以正常执行下个命令,所以应该由客户端自己决定是否关闭连接
 func (c *TcpConn) Handle() {
 	// 监控系统退出
 	c.wg.Wrap(func() {
@@ -62,7 +56,7 @@ func (c *TcpConn) Handle() {
 		line, isPrefix, err := c.reader.ReadLine()
 		if err != nil {
 			if err == io.EOF {
-				c.LogWarn("closed.")
+				c.LogInfo("closed.")
 			} else {
 				c.LogError(fmt.Sprintf("connection error, %s", err))
 			}
@@ -117,11 +111,10 @@ func (c *TcpConn) Handle() {
 		}
 
 		if err != nil {
+			c.Response(respType, []byte(err.Error()))
 			if _, ok := err.(*FatalClientErr); ok {
-				c.LogError(err)
 				break
 			} else {
-				c.Response(respType, []byte(err.Error()))
 				continue
 			}
 		}
@@ -131,7 +124,7 @@ func (c *TcpConn) Handle() {
 
 	// force close conn
 	_ = c.conn.Close()
-	close(c.exitChan)
+	close(c.exitChan) // notify channel to remove connection
 }
 
 // pub <topic_name> <route_key> <delay-time>\n

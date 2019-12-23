@@ -518,7 +518,7 @@ func Example_Subscribe(c *Client, channel string) {
 
 		// receive response
 		rtype, data := c.Recv()
-		log.Println(fmt.Sprintf("rtype:%v, result:%v", rtype, string(data)))
+		fmt.Println(fmt.Sprintf("rtype:%v, result:%v", rtype, string(data)))
 	}
 }
 

@@ -17,7 +17,6 @@ var (
 	ErrTopicEmpty   = "E_INVALID_TOPIC"
 	ErrBindKeyEmpty = "E_INVALID_BINDKEY"
 	ErrChannelEmpty = "E_INVALID_CHANNEL"
-	ErrMsgEmpty     = "E_INVALID_MESSAGE"
 	ErrPublish      = "E_INVALID_PUBLISH"
 )
 

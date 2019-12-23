@@ -169,6 +169,8 @@ func (t *Topic) init() {
 func (t *Topic) exit() {
 	defer t.LogInfo(fmt.Sprintf("topic.%s has exit.", t.name))
 
+	t.ctx.Dispatcher.RemoveTopic(t.name)
+
 	t.closed = true
 	close(t.exitChan)
 	t.wg.Wait()

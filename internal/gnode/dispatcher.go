@@ -64,7 +64,6 @@ func NewDispatcher(ctx *Context) *Dispatcher {
 func (d *Dispatcher) Run() {
 	defer d.LogInfo("dispatcher exit.")
 	d.wg.Wrap(d.scanLoop)
-	d.wg.Wrap(d.notify)
 
 	select {
 	case <-d.ctx.Gnode.exitChan:
@@ -87,25 +86,6 @@ func (d *Dispatcher) exit() {
 
 	close(d.notifyExit) // exit notify
 	d.wg.Wait()
-}
-
-func (d *Dispatcher) notify() {
-	for {
-		select {
-		case t := <-d.notifyExitTopic:
-			// when the topic exits , it will notify dispatcher to remove it
-			d.topicMux.Lock()
-			delete(d.topics, t)
-			d.topicMux.Unlock()
-		case c := <-d.notifyExitChannel:
-			// when the channel exits , it will notify dispatcher to remove it
-			d.channelMux.Lock()
-			delete(d.channels, c)
-			d.channelMux.Unlock()
-		case <-d.notifyExit:
-			return
-		}
-	}
 }
 
 // 定时扫描各个topic.queue延迟消息
@@ -270,11 +250,21 @@ func (d *Dispatcher) GetTopics() []*Topic {
 	return topics
 }
 
+// remove topic by topic.name
+func (d *Dispatcher) RemoveTopic(name string) {
+	d.topicMux.Lock()
+	if t, ok := d.topics[name]; ok {
+		delete(d.topics, t.name)
+	}
+
+	d.topicMux.Unlock()
+}
+
 // get channel
 // create channel if is not exist
-func (d *Dispatcher) GetChannel(name string) *Channel {
+func (d *Dispatcher) GetChannel(key string) *Channel {
 	d.channelMux.RLock()
-	if c, ok := d.channels[name]; ok {
+	if c, ok := d.channels[key]; ok {
 		d.channelMux.RUnlock()
 		return c
 	} else {
@@ -282,10 +272,20 @@ func (d *Dispatcher) GetChannel(name string) *Channel {
 	}
 
 	d.channelMux.Lock()
-	c := NewChannel(name, d.ctx)
-	d.channels[name] = c
+	c := NewChannel(key, d.ctx)
+	d.channels[key] = c
 	d.channelMux.Unlock()
 	return c
+}
+
+// remove channel by channel.key
+func (d *Dispatcher) RemoveChannel(key string) {
+	d.channelMux.Lock()
+	if c, ok := d.channels[key]; ok {
+		delete(d.channels, c.key)
+	}
+
+	d.channelMux.Unlock()
 }
 
 // 消息推送

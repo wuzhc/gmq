@@ -32,8 +32,8 @@ func NewChannel(key string, ctx *Context) *Channel {
 
 // exit channel
 func (c *Channel) exit() {
-	c.ctx.Dispatcher.notifyExitChannel <- c.key
-	close(c.exitChan)
+	c.ctx.Dispatcher.RemoveChannel(c.key)
+	close(c.exitChan) 
 	c.wg.Wait()
 }
 
