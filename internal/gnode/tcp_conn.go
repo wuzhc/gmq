@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -42,7 +41,7 @@ type TcpConn struct {
 // 一种是协议解析完成,但是执行业务的时候失败,此时server不需要断开连接,
 // 它可以正常执行下个命令,所以应该由客户端自己决定是否关闭连接
 func (c *TcpConn) Handle() {
-	defer c.LogInfo("tcp connection handle exit.")
+	defer c.LogInfo(fmt.Sprintf("tcp connection %s handle exit.", c.conn.RemoteAddr()))
 
 	// 监控系统退出
 	c.wg.Wrap(func() {
@@ -54,7 +53,7 @@ func (c *TcpConn) Handle() {
 		}
 	})
 
-	var buf bytes.Buffer
+	var buf bytes.Buffer // todo 待优化
 	for {
 		var err error
 		if err := c.conn.SetDeadline(time.Time{}); err != nil {
@@ -89,69 +88,79 @@ func (c *TcpConn) Handle() {
 
 		cmd := params[0]
 		params = params[1:]
-		err = nil
+
+		var (
+			data     []byte
+			respType int16
+		)
 
 		switch {
 		case bytes.Equal(cmd, []byte("pub")):
-			err = c.PUB(params)
+			respType, data, err = c.PUB(params)
 		case bytes.Equal(cmd, []byte("pop")):
-			err = c.POP(params)
+			respType, data, err = c.POP(params)
 		case bytes.Equal(cmd, []byte("ack")):
-			err = c.ACK(params)
+			respType, data, err = c.ACK(params)
 		case bytes.Equal(cmd, []byte("mpub")):
-			err = c.MPUB(params)
+			respType, data, err = c.MPUB(params)
 		case bytes.Equal(cmd, []byte("dead")):
-			err = c.DEAD(params)
+			respType, data, err = c.DEAD(params)
 		case bytes.Equal(cmd, []byte("set")):
-			err = c.SET(params)
+			respType, data, err = c.SET(params)
 		case bytes.Equal(cmd, []byte("queue")):
-			err = c.DECLAREQUEUE(params)
+			respType, data, err = c.DECLAREQUEUE(params)
 		case bytes.Equal(cmd, []byte("subscribe")):
-			err = c.SUBSCRIBE(params)
+			respType, data, err = c.SUBSCRIBE(params)
 		case bytes.Equal(cmd, []byte("publish")):
-			err = c.PUBLISH(params)
+			respType, data, err = c.PUBLISH(params)
 		default:
-			err = errors.New(fmt.Sprintf("unkown cmd: %s", cmd))
+			respType = RESP_ERROR
+			err = NewClientErr(ErrUnkownCmd, fmt.Sprintf("unkown cmd: %s", cmd))
 		}
 
 		if err != nil {
-			c.RespErr(err)
-			c.LogError(err)
-			break
+			if _, ok := err.(*FatalClientErr); ok {
+				c.LogError(err)
+				break
+			} else {
+				c.Response(respType, []byte(err.Error()))
+				continue
+			}
 		}
+
+		c.Response(respType, data)
 	}
 
 	// force close conn
-	time.Sleep(2 * time.Second)
 	_ = c.conn.Close()
 	close(c.exitChan)
 }
 
 // pub <topic_name> <route_key> <delay-time>\n
 // [ 4-byte size in bytes ][ N-byte binary data ]
-func (c *TcpConn) PUB(params [][]byte) error {
+func (c *TcpConn) PUB(params [][]byte) (int16, []byte, error) {
 	if len(params) != 3 {
-		return errors.New("pub.params is error")
+		return RESP_ERROR, nil, NewFatalClientErr(ErrParams, "3 parameters required")
 	}
 
 	topic := string(params[0])
 	routeKey := string(params[1])
 	delay, _ := strconv.Atoi(string(params[2]))
 	if delay > MSG_MAX_DELAY {
-		return errors.New("pub.delay exceeding the maximum")
+		return RESP_ERROR, nil, NewClientErr(ErrDelay, fmt.Sprintf("delay can't exceeding the maximum %s", MSG_MAX_DELAY))
 	}
 
 	bodylenBuf := make([]byte, 4)
 	_, err := io.ReadFull(c.reader, bodylenBuf)
 	if err != nil {
-		return errors.New(fmt.Sprintf("read bodylen failed, %v", err))
+		return RESP_ERROR, nil, NewFatalClientErr(ErrReadConn, err.Error())
 	}
 
 	bodylen := int(binary.BigEndian.Uint32(bodylenBuf))
 	body := make([]byte, bodylen)
 	_, err = io.ReadFull(c.reader, body)
 	if err != nil {
-		return errors.New(fmt.Sprintf("read body failed, %v", err))
+		return RESP_ERROR, nil, NewFatalClientErr(ErrReadConn, err.Error())
 	}
 
 	cb := make([]byte, len(body))
@@ -159,28 +168,26 @@ func (c *TcpConn) PUB(params [][]byte) error {
 
 	msgId, err := c.serv.ctx.Dispatcher.push(topic, routeKey, cb, delay)
 	if err != nil {
-		c.RespErr(err)
+		return RESP_ERROR, nil, NewFatalClientErr(ErrReadConn, err.Error())
 	} else {
-		c.RespRes(strconv.FormatUint(msgId, 10))
+		return RESP_RESULT, []byte(strconv.FormatUint(msgId, 10)), nil
 	}
-
-	return nil
 }
 
 // mpub <topic_name> <num>\n
 // <msg.len> <[]byte({"delay":1,"body":"xxx","topic":"xxx","routeKey":"xxx"})>
 // <msg.len> <[]byte({"delay":1,"body":"xxx","topic":"xxx","routeKey":"xxx"})>
-func (c *TcpConn) MPUB(params [][]byte) error {
+func (c *TcpConn) MPUB(params [][]byte) (int16, []byte, error) {
 	var err error
 
 	if len(params) != 2 {
-		return errors.New("pub params is error")
+		return RESP_ERROR, nil, NewFatalClientErr(ErrParams, "2 parameters required")
 	}
 
 	topic := string(params[0])
 	num, _ := strconv.Atoi(string(params[1]))
 	if num <= 0 || num > c.serv.ctx.Conf.MsgMaxPushNum {
-		return errors.New(fmt.Sprintf("number of push must be between 1 and %v", c.serv.ctx.Conf.MsgMaxPushNum))
+		return RESP_ERROR, nil, NewFatalClientErr(ErrPushNum, fmt.Sprintf("number of push must be between 1 and %v", c.serv.ctx.Conf.MsgMaxPushNum))
 	}
 
 	msgIds := make([]uint64, num)
@@ -188,14 +195,14 @@ func (c *TcpConn) MPUB(params [][]byte) error {
 		msglenBuf := make([]byte, 4)
 		_, err = io.ReadFull(c.reader, msglenBuf)
 		if err != nil {
-			return fmt.Errorf("read msg.length failed, %v", err)
+			return RESP_ERROR, nil, NewFatalClientErr(ErrReadConn, err.Error())
 		}
 
 		msglen := int(binary.BigEndian.Uint32(msglenBuf))
 		msg := make([]byte, msglen)
 		_, err = io.ReadFull(c.reader, msg)
 		if err != nil {
-			return fmt.Errorf("read body failed, %v", err)
+			return RESP_ERROR, nil, NewFatalClientErr(ErrReadConn, err.Error())
 		}
 
 		var recvMsg RecvMsgData
@@ -205,7 +212,7 @@ func (c *TcpConn) MPUB(params [][]byte) error {
 
 		msgId, err := c.serv.ctx.Dispatcher.push(topic, recvMsg.RouteKey, []byte(recvMsg.Body), recvMsg.Delay)
 		if err != nil {
-			c.RespErr(err)
+			return RESP_ERROR, nil, NewClientErr(ErrPush, err.Error())
 		}
 
 		msgIds[i] = msgId
@@ -215,40 +222,43 @@ func (c *TcpConn) MPUB(params [][]byte) error {
 
 	nbytes, err := json.Marshal(msgIds)
 	if err != nil {
-		c.RespErr(err)
+		return RESP_ERROR, nil, NewClientErr(ErrJson, err.Error())
 	} else {
-		c.RespRes(string(nbytes))
+		return RESP_MESSAGE, nbytes, nil
 	}
-
-	return nil
 }
 
 // 消费消息
 // pop <topic_name> <bind_key>\n
-func (c *TcpConn) POP(params [][]byte) error {
+func (c *TcpConn) POP(params [][]byte) (int16, []byte, error) {
 	if len(params) != 2 {
-		return errors.New("pop params is error")
+		return RESP_ERROR, nil, NewFatalClientErr(ErrParams, "2 parameters required")
 	}
 
 	topic := string(params[0])
 	bindKey := string(params[1])
 	msg, err := c.serv.ctx.Dispatcher.pop(topic, bindKey)
-
 	if err != nil {
-		c.RespErr(err)
-	} else {
-		c.RespMsg(msg)
+		return RESP_ERROR, nil, NewClientErr(ErrPopMsg, err.Error())
 	}
 
-	msg = nil
-	return nil
+	msgData := RespMsgData{}
+	msgData.Body = string(msg.Body)
+	msgData.Retry = msg.Retry
+	msgData.Id = strconv.FormatUint(msg.Id, 10)
+	data, err := json.Marshal(msgData)
+	if err != nil {
+		return RESP_ERROR, nil, NewClientErr(ErrJson, err.Error())
+	} else {
+		return RESP_MESSAGE, data, nil
+	}
 }
 
 // 确认消息
 // ack <message_id> <topic> <bind_key>\n
-func (c *TcpConn) ACK(params [][]byte) error {
+func (c *TcpConn) ACK(params [][]byte) (int16, []byte, error) {
 	if len(params) != 3 {
-		return errors.New("ack params is error")
+		return RESP_ERROR, nil, NewFatalClientErr(ErrParams, "3 parameters required")
 	}
 
 	msgId, _ := strconv.ParseInt(string(params[0]), 10, 64)
@@ -256,19 +266,17 @@ func (c *TcpConn) ACK(params [][]byte) error {
 	bindKey := string(params[2])
 
 	if err := c.serv.ctx.Dispatcher.ack(topic, uint64(msgId), bindKey); err != nil {
-		c.RespErr(err)
+		return RESP_ERROR, nil, NewClientErr(ErrAckMsg, err.Error())
 	} else {
-		c.RespRes("ok")
+		return RESP_RESULT, []byte{'o', 'k'}, nil
 	}
-
-	return nil
 }
 
 // 死信队列消费
 // dead <topic_name> <bind_key>\n
-func (c *TcpConn) DEAD(params [][]byte) error {
+func (c *TcpConn) DEAD(params [][]byte) (int16, []byte, error) {
 	if len(params) != 2 {
-		return errors.New("dead command params is error")
+		return RESP_ERROR, nil, NewFatalClientErr(ErrParams, "2 parameters required")
 	}
 
 	topic := string(params[0])
@@ -276,13 +284,19 @@ func (c *TcpConn) DEAD(params [][]byte) error {
 	msg, err := c.serv.ctx.Dispatcher.dead(topic, bindKey)
 
 	if err != nil {
-		c.RespErr(err)
-	} else {
-		c.RespMsg(msg)
+		return RESP_ERROR, nil, NewClientErr(ErrDead, err.Error())
 	}
 
-	msg = nil
-	return nil
+	msgData := RespMsgData{}
+	msgData.Body = string(msg.Body)
+	msgData.Retry = msg.Retry
+	msgData.Id = strconv.FormatUint(msg.Id, 10)
+	data, err := json.Marshal(msgData)
+	if err != nil {
+		return RESP_ERROR, nil, NewClientErr(ErrJson, err.Error())
+	} else {
+		return RESP_MESSAGE, data, nil
+	}
 }
 
 type topicConfigure struct {
@@ -294,15 +308,14 @@ type topicConfigure struct {
 
 // 设置topic信息,目前只有isAutoAck选项
 // set <topic_name> <isAutoAck> <mode> <msg_ttr> <msg_retry>\n
-func (c *TcpConn) SET(params [][]byte) error {
+func (c *TcpConn) SET(params [][]byte) (int16, []byte, error) {
 	if len(params) != 2 {
-		return errors.New("ack params is error")
+		return RESP_ERROR, nil, NewFatalClientErr(ErrParams, "2 parameters required")
 	}
 
 	topic := string(params[0])
 	if len(topic) == 0 {
-		c.RespErr(fmt.Errorf("topic is empty"))
-		return nil
+		return RESP_ERROR, nil, NewFatalClientErr(ErrTopicEmpty, "topic is empty")
 	}
 
 	configure := &topicConfigure{}
@@ -315,89 +328,76 @@ func (c *TcpConn) SET(params [][]byte) error {
 	configure = nil
 
 	if err != nil {
-		c.RespErr(err)
+		return RESP_ERROR, nil, NewClientErr(ErrSet, err.Error())
 	} else {
-		c.RespRes("ok")
+		return RESP_RESULT, []byte{'o', 'k'}, nil
 	}
-
-	return nil
 }
 
 // declare queue
 // queue <topic_name> <bind_key>\n
-func (c *TcpConn) DECLAREQUEUE(params [][]byte) error {
+func (c *TcpConn) DECLAREQUEUE(params [][]byte) (int16, []byte, error) {
 	if len(params) != 2 {
-		return errors.New("queue params is error")
+		return RESP_ERROR, nil, NewFatalClientErr(ErrParams, "2 parameters required")
 	}
 
 	topic := string(params[0])
 	if len(topic) == 0 {
-		c.RespErr(fmt.Errorf("topic name is empty"))
-		return nil
+		return RESP_ERROR, nil, NewFatalClientErr(ErrTopicEmpty, "topic name required")
 	}
 	bindKey := string(params[1])
 	if len(bindKey) == 0 {
-		c.RespErr(fmt.Errorf("bindKey is empty"))
-		return nil
+		return RESP_ERROR, nil, NewFatalClientErr(ErrBindKeyEmpty, "bind key required")
 	}
 
 	if err := c.serv.ctx.Dispatcher.declareQueue(topic, bindKey); err != nil {
-		c.RespErr(err)
-		return nil
+		return RESP_ERROR, nil, NewClientErr(ErrDeclare, err.Error())
+	} else {
+		return RESP_RESULT, []byte{'o', 'k'}, nil
 	}
-
-	c.RespRes("ok")
-	return nil
 }
 
 // subscribe channel
 // subscribe <channel_name> \n
-func (c *TcpConn) SUBSCRIBE(params [][]byte) error {
+func (c *TcpConn) SUBSCRIBE(params [][]byte) (int16, []byte, error) {
 	if len(params) != 1 {
-		return errors.New("params is error")
+		return RESP_ERROR, nil, NewFatalClientErr(ErrParams, "1 parameters required")
 	}
 
 	channelName := string(params[0])
 	if len(channelName) == 0 {
-		c.RespErr(fmt.Errorf("channel name is empty"))
-		return nil
+		return RESP_ERROR, nil, NewFatalClientErr(ErrChannelEmpty, "channel name is empty")
 	}
 
 	if err := c.serv.ctx.Dispatcher.subscribe(channelName, c); err != nil {
-		c.RespErr(err)
-		return nil
+		return RESP_ERROR, nil, NewClientErr(ErrSubscribe, err.Error())
+	} else {
+		return RESP_RESULT, []byte{'o', 'k'}, nil
 	}
-
-	c.RespRes("ok")
-	return nil
 }
 
 // publish message to channel
 // publish <channel_name> <message>\n
-func (c *TcpConn) PUBLISH(params [][]byte) error {
+func (c *TcpConn) PUBLISH(params [][]byte) (int16, []byte, error) {
 	if len(params) != 2 {
-		return errors.New("params is error")
+		return RESP_ERROR, nil, NewFatalClientErr(ErrParams, "2 parameters required")
 	}
 
 	channelName := string(params[0])
 	if len(channelName) == 0 {
-		c.RespErr(fmt.Errorf("channel name is empty"))
-		return nil
+		return RESP_ERROR, nil, NewFatalClientErr(ErrChannelEmpty, "channel name required")
 	}
 
 	message := params[1]
 	if len(message) == 0 {
-		c.RespErr(fmt.Errorf("message is empty"))
-		return nil
+		return RESP_ERROR, nil, NewFatalClientErr(ErrMsgEmpty, "message required")
 	}
 
 	if err := c.serv.ctx.Dispatcher.publish(channelName, message); err != nil {
-		c.RespErr(err)
-		return nil
+		return RESP_ERROR, nil, NewClientErr(ErrPublish, err.Error())
+	} else {
+		return RESP_RESULT, []byte{'o', 'k'}, nil
 	}
-
-	c.RespRes("ok")
-	return nil
 }
 
 func (c *TcpConn) Response(respType int16, respData []byte) {

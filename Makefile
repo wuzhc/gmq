@@ -13,6 +13,7 @@ $(APPS): %:build/%
 .PHONY: build
 build: 
 	go build -o ./build/gnode ./cmd/gnode
+	go build -o ./build/gctl ./cmd/gctl
 
 .PHONY: clean
 clean:
@@ -23,3 +24,4 @@ go-systemd:
 
 install: $(APPS)
 	install ./build/gnode ${GOPATH}/bin/gnode${EXT}
+	install ./build/gctl ${GOPATH}/bin/gctl${EXT}
