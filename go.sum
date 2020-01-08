@@ -40,6 +40,7 @@ github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UV
 github.com/stretchr/testify v1.4.0/go.mod h1:j7eGeouHqKxXV5pUuKE4zz7dFj8WfuZ+81PSLYec5m4=
 github.com/wuzhc/bbolt v1.3.3 h1:ALSpfJwpqTVlSmvVQVAd9DIlPjgyLtbr51s5LQjQeTY=
 github.com/wuzhc/bbolt v1.3.3/go.mod h1:iCpAGhM4WtUOCCNh+v059Ncl8pg8DnadwFYAwvE8SWc=
+github.com/yudai/gotty v1.0.1/go.mod h1:QBg0hL6VTVdqQk0qoBYk631EHLRH+XtR4wtbVi64UJ4=
 go.uber.org/atomic v1.5.0 h1:OI5t8sDa1Or+q8AeE+yKeB/SDYioSHAgcVljj9JIETY=
 go.uber.org/atomic v1.5.0/go.mod h1:sABNBOSYdrvTF6hTgEIbc7YasKWGhgEQZyfxyTvoXHQ=
 go.uber.org/multierr v1.3.0 h1:sFPn2GLc3poCkfrpIXGhBD2X0CMIo4Q/zSULXrj/+uc=

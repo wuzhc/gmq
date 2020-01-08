@@ -188,6 +188,7 @@ func (t *Topic) exit() {
 
 	var queues []QueueMeta
 	for k, q := range t.queues {
+		q.exit()
 		queues = append(queues, QueueMeta{
 			Num:         q.num,
 			Name:        q.name,
@@ -200,6 +201,7 @@ func (t *Topic) exit() {
 
 	var deadQueues []QueueMeta
 	for k, q := range t.deadQueues {
+		q.exit()
 		deadQueues = append(deadQueues, QueueMeta{
 			Num:         q.num,
 			Name:        q.name,
@@ -448,7 +450,7 @@ func (t *Topic) pop(bindKey string) (*Msg, error) {
 		return nil, err
 	}
 
-	msg := Decode(data)
+	msg := Decode(data.data)
 	if msg.Id == 0 {
 		msg = nil
 		return nil, errors.New("message decode failed.")
@@ -465,12 +467,12 @@ func (t *Topic) dead(bindKey string) (*Msg, error) {
 		return nil, fmt.Errorf("bindkey:%s is not associated with queue", bindKey)
 	}
 
-	data, err := queue.read(true)
+	data, err := queue.read(t.isAutoAck)
 	if err != nil {
 		return nil, err
 	}
 
-	msg := Decode(data)
+	msg := Decode(data.data)
 	if msg.Id == 0 {
 		msg = nil
 		return nil, errors.New("message decode failed.")

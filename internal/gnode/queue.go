@@ -26,6 +26,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/wuzhc/gmq/pkg/utils"
 	"log"
 	"os"
 	"runtime"
@@ -43,7 +44,7 @@ const GROW_SIZE = 10 * 1024 * 1024
 const REWRITE_SIZE = 100 * 1024 * 1024
 
 var (
-	ErrQueueNoMessage = errors.New("no message")
+	ErrQueueClosed = errors.New("queue has been closed.")
 )
 
 type queue struct {
@@ -59,16 +60,31 @@ type queue struct {
 	ctx      *Context
 	bindKey  string           //绑定键，topic.name_queue.bingKey是队列的唯一标识
 	waitAck  map[uint64]int64 // 等待确认消息，消息ID和消息位置的映射关系
+	readChan chan *readQueueData
+	closed   bool
+	wg       utils.WaitGroupWrapper
+
+	exitChan          chan struct{}
+	notifyReadMsgChan chan bool
 	sync.RWMutex
+}
+
+type readQueueData struct {
+	data []byte
+	pos  int64
 }
 
 func NewQueue(name, bindKey string, ctx *Context, topic *Topic) *queue {
 	queue := &queue{
-		name:    name,
-		ctx:     ctx,
-		topic:   topic,
-		bindKey: bindKey,
-		waitAck: make(map[uint64]int64),
+		name:     name,
+		ctx:      ctx,
+		topic:    topic,
+		bindKey:  bindKey,
+		waitAck:  make(map[uint64]int64),
+		readChan: make(chan *readQueueData),
+		exitChan: make(chan struct{}),
+
+		notifyReadMsgChan: make(chan bool),
 	}
 
 	path := fmt.Sprintf("%s/%s.queue", ctx.Conf.DataSavePath, name)
@@ -109,11 +125,38 @@ func NewQueue(name, bindKey string, ctx *Context, topic *Topic) *queue {
 		log.Fatalln(err)
 	}
 
+	queue.wg.Wrap(queue.loopRead)
 	return queue
+}
+
+func (q *queue) loopRead() {
+	for {
+		queueData, err := q.read(q.topic.isAutoAck)
+		if err != nil {
+			q.LogError(err)
+		}
+
+		select {
+		case <-q.exitChan:
+			return
+		case q.readChan <- queueData:
+		}
+	}
+}
+
+func (q *queue) exit() {
+	q.closed = true
+	close(q.exitChan)
+	close(q.notifyReadMsgChan)
+	q.wg.Wait()
 }
 
 // 队列扫描未确认消息
 func (q *queue) scan() ([]byte, error) {
+	if q.closed {
+		return nil, ErrQueueClosed
+	}
+
 	q.Lock()
 	// q.LogDebug(fmt.Sprintf("scan.offset:%v read.offset:%v write.offset:%v", q.soffset, q.roffset, q.woffset))
 
@@ -135,6 +178,11 @@ func (q *queue) scan() ([]byte, error) {
 
 	status := binary.BigEndian.Uint16(q.data[q.soffset+1 : q.soffset+3])
 	msgLen := int64(binary.BigEndian.Uint32(q.data[q.soffset+3 : q.soffset+7]))
+
+	if status == MSG_STATUS_READ {
+		q.Unlock()
+		return nil, ErrMessageNotExpire
+	}
 
 	// scan next message when the current message is finish
 	if status == MSG_STATUS_FIN {
@@ -237,6 +285,10 @@ func (q *queue) rewrite() error {
 
 // 消息设置为已确认消费
 func (q *queue) ack(msgId uint64) error {
+	if q.closed {
+		return ErrQueueClosed
+	}
+
 	q.Lock()
 	defer q.Unlock()
 
@@ -302,18 +354,29 @@ func (q *queue) unmap() error {
 }
 
 // 队列读取消息
-func (q *queue) read(isAutoAck bool) ([]byte, error) {
+func (q *queue) read(isAutoAck bool) (*readQueueData, error) {
+	if q.closed {
+		return nil, ErrQueueClosed
+	}
+
 	q.Lock()
 	defer q.Unlock()
 
 	msgOffset := q.roffset
 	if q.roffset == q.woffset {
-		return nil, ErrQueueNoMessage
+		q.Unlock()
+		// 等待消息写入
+		hasMsg := <-q.notifyReadMsgChan
+		q.Lock()
+		if !hasMsg {
+			return nil, nil
+		}
 	}
 
 	// 消息结构 flag(1-byte) + status(2-bytes) + msg_len(4-bytes) + msg(n-bytes)
 	// msg又包括expire(8-bytes) + id(8-bytes) + retry(2-bytes) + body(n-bytes)
 	if flag := q.data[q.roffset]; flag != 'v' {
+		fmt.Println("xxxxx", string(flag), flag)
 		return nil, errors.New("unkown msg flag")
 	}
 
@@ -329,16 +392,45 @@ func (q *queue) read(isAutoAck bool) ([]byte, error) {
 		binary.BigEndian.PutUint64(q.data[q.roffset+7:q.roffset+15], uint64(time.Now().Unix())+uint64(q.topic.msgTTR))
 		msgId := binary.BigEndian.Uint64(q.data[q.roffset+15 : q.roffset+23])
 		q.waitAck[msgId] = msgOffset
-		// q.LogDebug(fmt.Sprintf("msg had been readed. exipire time is %v", uint64(time.Now().Unix())+uint64(q.topic.msgTTR)))
 	}
 
-	// 移动读偏移位置
 	q.roffset += MSG_FIX_LENGTH + msgLen
-	return msg, nil
+	return &readQueueData{msg, msgOffset}, nil
+}
+
+func (q *queue) updateMsgStatus(msgId uint64, offset int64, status int) {
+	q.Lock()
+	defer q.Unlock()
+
+	queueMsgId := binary.BigEndian.Uint64(q.data[offset+15 : offset+23])
+	if msgId != queueMsgId {
+		q.LogError(fmt.Sprintf("invaild msgId, msgId %d, but queue.msg.id is %d", msgId, queueMsgId))
+		return
+	}
+
+	if flag := q.data[offset]; flag != 'v' {
+		q.LogError(fmt.Sprintf("invaild offset, offset : %s", offset))
+		return
+	}
+
+	switch status {
+	case MSG_STATUS_WAIT:
+		q.waitAck[msgId] = offset
+	case MSG_STATUS_FIN:
+	default:
+		q.LogError(fmt.Sprintf("invaild status %d", status))
+		return
+	}
+
+	binary.BigEndian.PutUint16(q.data[offset+1:offset+3], uint16(status))
 }
 
 // 新写入信息的长度不能超过文件大小,超过则新建文件
 func (q *queue) write(msg []byte) error {
+	if q.closed {
+		return ErrQueueClosed
+	}
+
 	q.Lock()
 	defer q.Unlock()
 
@@ -358,6 +450,13 @@ func (q *queue) write(msg []byte) error {
 
 	q.woffset += MSG_FIX_LENGTH + msgLen
 	atomic.AddInt64(&q.num, 1)
+
+	// 通知消费者已有消息，如果没有消费者等待notifyReadMsgChan
+	// default分支用于保证不会阻塞生产者生产消息
+	select {
+	case q.notifyReadMsgChan <- true:
+	default:
+	}
 
 	return nil
 }

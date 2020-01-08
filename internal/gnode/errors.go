@@ -18,6 +18,7 @@ var (
 	ErrBindKeyEmpty = "E_INVALID_BINDKEY"
 	ErrChannelEmpty = "E_INVALID_CHANNEL"
 	ErrPublish      = "E_INVALID_PUBLISH"
+	ErrResp         = "E_INVALID_RESPONSE"
 )
 
 type FatalClientErr struct {

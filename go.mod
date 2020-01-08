@@ -13,6 +13,7 @@ require (
 	github.com/google/uuid v1.1.1 // indirect
 	github.com/kardianos/service v1.0.0
 	github.com/wuzhc/bbolt v1.3.3
+	github.com/yudai/gotty v1.0.1 // indirect
 	go.uber.org/zap v1.13.0 // indirect
 	google.golang.org/grpc v1.25.1 // indirect
 	gopkg.in/ini.v1 v1.51.0

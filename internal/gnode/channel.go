@@ -98,7 +98,7 @@ func (c *Channel) distribute() {
 		case msg := <-c.pushMsgChan:
 			c.RLock()
 			for tcpConn, _ := range c.conns {
-				tcpConn.Response(RESP_CHANNEL, msg)
+				tcpConn.Send(RESP_CHANNEL, msg)
 			}
 			c.RUnlock()
 		}

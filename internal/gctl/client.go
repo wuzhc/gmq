@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/etcd-io/etcd/clientv3"
+	"github.com/wuzhc/gmq/internal/gnode"
 )
 
 const (
@@ -369,22 +370,8 @@ func Example_Produce(c *Client, topic string, num int, routeKey string) {
 	}
 
 	for i := 0; i < num; i++ {
-		// push message
-		vv, _ := json.Marshal(map[string]string{
-			"senderPortrait": "xxxxxxx",
-			"senderId":       "xxxx",
-			"msgContent":     "hello worldhello worldhello worldhello worldhello world",
-		})
-
 		msg := MsgPkg{}
-		bc := &bodyCnt{
-			From:    "u10111",
-			To:      "u20222",
-			Content: string(vv),
-		}
-		bbc, _ := json.Marshal(bc)
-		fmt.Println(string(bbc))
-		msg.Body = string(bbc)
+		msg.Body = string("hello world")
 		msg.Topic = topic
 		msg.Delay = 0
 		msg.RouteKey = routeKey
@@ -394,7 +381,9 @@ func Example_Produce(c *Client, topic string, num int, routeKey string) {
 
 		// receive response
 		rtype, data := c.Recv()
-		log.Println(fmt.Sprintf("rtype:%v, msg.id:%v", rtype, string(data)))
+		if rtype == RESP_RESULT {
+			log.Println(string(data))
+		}
 	}
 }
 
@@ -475,11 +464,12 @@ func Example_Loop_Consume(c *Client, topic, bindKey string) {
 
 		// receive response
 		rtype, data := c.Recv()
-		if rtype == RESP_MESSAGE {
-			log.Println(fmt.Sprintf("recv msg:%v", string(data)))
+		if rtype == gnode.RESP_MESSAGE {
+			log.Println(string(data))
+		} else if rtype == gnode.RESP_ERROR {
+			log.Fatalln(string(data))
 		} else {
 			log.Println(string(data))
-			time.Sleep(3 * time.Second)
 		}
 	}
 }

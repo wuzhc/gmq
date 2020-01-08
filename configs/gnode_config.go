@@ -6,12 +6,14 @@ import (
 
 type GnodeConfig struct {
 	// node
-	NodeId        int
-	NodeWeight    int
-	MsgTTR        int
-	MsgMaxRetry   int
-	MsgMaxPushNum int
-	DataSavePath  string
+	NodeId            int
+	NodeWeight        int
+	MsgTTR            int
+	MsgMaxRetry       int
+	MsgMaxPushNum     int
+	DataSavePath      string
+	EnableCluster     bool
+	HeartbeatInterval int
 
 	// gresiter
 	GregisterAddr string
@@ -74,6 +76,9 @@ func (c *GnodeConfig) SetDefault() {
 	}
 	if c.MsgMaxPushNum == 0 {
 		c.MsgMaxPushNum = 1000
+	}
+	if c.HeartbeatInterval <= 0 {
+		c.HeartbeatInterval = 5
 	}
 
 	// etcd

@@ -20,8 +20,6 @@ import (
 	"gopkg.in/ini.v1"
 )
 
-const DATA_DIR = "data"
-
 type Gnode struct {
 	version  string
 	running  int32
@@ -45,7 +43,7 @@ func New(cfg *configs.GnodeConfig) *Gnode {
 	}
 }
 
-// 启动应用
+// begin run
 func (gn *Gnode) Run() {
 	if atomic.LoadInt32(&gn.running) == 1 {
 		log.Fatalln("gnode is running.")
@@ -75,14 +73,18 @@ func (gn *Gnode) Run() {
 	gn.wg.Wrap(NewHttpServ(ctx).Run)
 	gn.wg.Wrap(NewTcpServ(ctx).Run)
 
-	if err := gn.register(); err != nil {
-		log.Fatalln(err)
+	// whether to enable cluster, if true,
+	// etcd must be started and the node will registers information to etcd
+	if gn.cfg.EnableCluster {
+		if err := gn.register(); err != nil {
+			log.Fatalln(err)
+		}
 	}
 
 	ctx.Logger.Info("gnode is running.")
 }
 
-// 将gmq节点注册到etcd
+// the node will registers information to etcd
 func (gn *Gnode) register() error {
 	cli, err := clientv3.New(clientv3.Config{
 		Endpoints:   gn.cfg.EtcdEndPoints,
@@ -105,7 +107,6 @@ func (gn *Gnode) register() error {
 	return nil
 }
 
-// 每次续约都会接收响应
 func (gn *Gnode) recvLeaseResponse(ch <-chan *clientv3.LeaseKeepAliveResponse) {
 	for {
 		select {
@@ -126,7 +127,7 @@ func (gn *Gnode) recvLeaseResponse(ch <-chan *clientv3.LeaseKeepAliveResponse) {
 	}
 }
 
-// 撤销etcd租约
+// revoke the lease
 func (gn *Gnode) revoke() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	_, err := gn.etcd.cli.Revoke(ctx, gn.etcd.leaseId)
@@ -138,7 +139,7 @@ func (gn *Gnode) revoke() {
 	gn.ctx.Logger.Info("etcd lease has revoke.")
 }
 
-// 不断续约租约
+// keep the lease alive to ensure that the node is alive
 func (gn *Gnode) keepAlive() (<-chan *clientv3.LeaseKeepAliveResponse, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	resp, err := gn.etcd.cli.Grant(ctx, 30)
@@ -169,13 +170,11 @@ func (gn *Gnode) keepAlive() (<-chan *clientv3.LeaseKeepAliveResponse, error) {
 	return gn.etcd.cli.KeepAlive(context.TODO(), resp.ID)
 }
 
-// 退出应用
 func (gn *Gnode) Exit() {
 	close(gn.exitChan)
 	gn.wg.Wait()
 }
 
-// gnode配置参数
 func NewGnodeConfig() *configs.GnodeConfig {
 	var err error
 	var cfg *configs.GnodeConfig
@@ -221,7 +220,6 @@ func NewGnodeConfig() *configs.GnodeConfig {
 	return cfg
 }
 
-// 加载文件配置参数值
 func LoadConfigFromFile(cfgFile string) (*configs.GnodeConfig, error) {
 	if res, err := utils.PathExists(cfgFile); !res {
 		if err != nil {
@@ -272,7 +270,6 @@ func LoadConfigFromFile(cfgFile string) (*configs.GnodeConfig, error) {
 	return cfg, nil
 }
 
-// 初始化日志组件
 func (gn *Gnode) initLogger() *logs.Dispatcher {
 	logger := logs.NewDispatcher(gn.cfg.LogLevel)
 	targets := strings.Split(gn.cfg.LogTargetType, ",")

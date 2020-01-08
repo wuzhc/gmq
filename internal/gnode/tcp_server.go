@@ -45,6 +45,7 @@ func (s *TcpServ) Run() {
 			close(s.exitChan)
 		case <-s.exitChan:
 		}
+
 		listen.Close()
 	}()
 
@@ -62,6 +63,7 @@ func (s *TcpServ) Run() {
 			reader:   bufio.NewReaderSize(conn, 16*1024),
 			writer:   bufio.NewWriterSize(conn, 16*1024),
 		}
+
 		s.wg.Wrap(tcpConn.Handle)
 	}
 }

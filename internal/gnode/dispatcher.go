@@ -19,17 +19,14 @@ type Dispatcher struct {
 	poolSize   int
 	snowflake  *utils.Snowflake
 	exitChan   chan struct{}
-	notifyExit chan struct{}
 
 	// topic
 	topics          map[string]*Topic
 	topicMux        sync.RWMutex
-	notifyExitTopic chan string
 
 	// channel
 	channels          map[string]*Channel
 	channelMux        sync.RWMutex
-	notifyExitChannel chan string
 }
 
 func NewDispatcher(ctx *Context) *Dispatcher {
@@ -51,10 +48,6 @@ func NewDispatcher(ctx *Context) *Dispatcher {
 		topics:     make(map[string]*Topic),
 		channels:   make(map[string]*Channel),
 		exitChan:   make(chan struct{}),
-		notifyExit: make(chan struct{}),
-
-		notifyExitTopic:   make(chan string),
-		notifyExitChannel: make(chan string),
 	}
 
 	ctx.Dispatcher = dispatcher
@@ -84,7 +77,6 @@ func (d *Dispatcher) exit() {
 		c.exit()
 	}
 
-	close(d.notifyExit) // exit notify
 	d.wg.Wait()
 }
 

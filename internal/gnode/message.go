@@ -7,7 +7,8 @@ import (
 
 const (
 	MSG_STATUS_DEFAULT = iota // 消息默认状态
-	MSG_STATUS_WAIT           // 消息被消费,等待客户端确认
+	MSG_STATUS_READ           // 消费已被客户端读取，当不确定是否已经没连接是否发送成功
+	MSG_STATUS_WAIT           // 消息已成功发送到客户端,等待客户端确认
 	MSG_STATUS_FIN            // 已得到客户端确认,可移除消息
 	MSG_STATUS_EXPIRE         // 未得到客户端确认,已超时
 
