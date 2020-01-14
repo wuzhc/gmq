@@ -1,0 +1,107 @@
+syntax = "proto3";
+
+package proto;
+
+import "google/api/annotations.proto";
+
+service Rpc {
+    rpc Push (PushRequest) returns (PushReply) {
+        option (google.api.http) = {
+			post: "/push"
+			body: "*"
+		};
+    }
+
+    rpc Pop (stream PopRequest) returns (stream PopReply) {
+        option (google.api.http) = {
+			get: "/pop"
+		};
+    }
+
+    rpc Ack (AckRequest) returns (AckReply) {
+        option (google.api.http) = {
+			post: "/ack"
+			body: "*"
+		};
+    }
+
+    rpc Declare (DeclareRequest) returns (DeclareReply) {
+        option (google.api.http) = {
+			post: "/declare"
+			body: "*"
+		};
+    }
+
+    rpc Publish (PublishRequest) returns (PublishReply) {
+        option (google.api.http) = {
+			post: "/publish"
+			body: "*"
+		};
+    }
+
+    rpc Subscribe (SubscribeRequest) returns (stream SubscribeReply) {
+        option (google.api.http) = {
+			post: "/subscribe"
+			body: "*"
+		};
+    }
+}
+
+message PushRequest {
+    string topic = 1;
+    string message = 2;
+    string routeKey = 3;
+    int32 delay = 4;
+}
+
+message PushReply {
+    int64 messageId = 1;
+}
+
+message PopRequest {
+    string topic = 1;
+    string queue = 2;
+    int32 reqStatus = 3;
+    int32 reqNum = 4;
+}
+
+message PopReply {
+    string message = 1;
+    int64 messageId = 2;
+}
+
+message AckRequest {
+    int64 messageId = 1;
+    string topic = 2;
+    string queue = 3;
+}
+
+message AckReply {
+    string result = 1;
+}
+
+message DeclareRequest {
+    string topic = 1;
+    string queue = 2;
+}
+
+message DeclareReply {
+    string result = 1;
+}
+
+message PublishRequest {
+    string channel = 1;
+    string message = 2;
+}
+
+message PublishReply {
+    string result = 1;
+}
+
+message SubscribeRequest {
+    string channel = 1;
+}
+
+message SubscribeReply {
+    string message = 1;
+}
