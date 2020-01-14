@@ -1,532 +1,161 @@
 package gctl
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
+	"github.com/coreos/etcd/clientv3"
+	pb "github.com/wuzhc/gmq/proto"
+	"google.golang.org/grpc"
 	"log"
 	"math/rand"
-	"net"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/etcd-io/etcd/clientv3"
-	"github.com/wuzhc/gmq/internal/gnode"
 )
 
-const (
-	RESP_MESSAGE = 101
-	RESP_ERROR   = 102
-	RESP_RESULT  = 103
-)
-
-var (
-	ErrTopicEmpty   = errors.New("topic is empty")
-	ErrTopicChannel = errors.New("channel is empty")
-)
-
-type MsgPkg struct {
-	Body     string `json:"body"`
-	Topic    string `json:"topic"`
-	Delay    int    `json:"delay"`
-	RouteKey string `json:"route_key"`
-}
-
-type MMsgPkg struct {
-	Body  string
-	Delay int
-}
-
-type Client struct {
-	conn   net.Conn
+type RpcClient struct {
+	client pb.RpcClient
 	addr   string
 	weight int
 }
 
-func NewClient(addr string, weight int) *Client {
+func NewRpcClient(addr string, weight int) *RpcClient {
 	if len(addr) == 0 {
 		log.Fatalln("address is empty")
 	}
 
-	conn, err := net.Dial("tcp", addr)
+	conn, err := grpc.Dial(addr, grpc.WithInsecure())
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	return &Client{
-		conn:   conn,
+	client := pb.NewRpcClient(conn)
+
+	return &RpcClient{
+		client: client,
 		addr:   addr,
 		weight: weight,
 	}
 }
 
-func (c *Client) Exit() {
-	c.conn.Close()
+func (rpc *RpcClient) Exit() {
+
 }
 
-// 获取客户端连接的节点地址
-func (c *Client) GetAddr() string {
-	return c.addr
+// get remote server addr
+func (rpc *RpcClient) GetAddr() string {
+	return rpc.addr
 }
 
-// 消费消息
-// pop <topic_name> <bind_key>
-func (c *Client) Pop(topic, bindKey string) error {
-	if len(topic) == 0 {
-		return ErrTopicEmpty
+// push command
+// push <topic:required> <route_key:optional> <message:required> <delay:optional>
+func (rpc *RpcClient) Push(data *PushSchema) (int64, error) {
+	if err := data.validate(); err != nil {
+		return 0, err
 	}
 
-	var params [][]byte
-	params = append(params, []byte("pop"))
-	params = append(params, []byte(topic))
-	params = append(params, []byte(bindKey))
-	line := bytes.Join(params, []byte(" "))
-	if _, err := c.conn.Write(line); err != nil {
-		return err
+	req := new(pb.PushRequest)
+	req.Topic = data.Topic
+	req.Delay = data.Delay
+	req.Message = data.Message
+	rsp, err := rpc.client.Push(context.Background(), req)
+	if err != nil {
+		return 0, NewFatalClientErr(ErrRequest, err.Error())
+	} else {
+		return rsp.MessageId, nil
 	}
-	if _, err := c.conn.Write([]byte{'\n'}); err != nil {
-		return err
-	}
-
-	return nil
 }
 
-// 消费消息
-// dead <topic_name> <bind_key>
-func (c *Client) Dead(topic, bindKey string) error {
-	if len(topic) == 0 {
-		return ErrTopicEmpty
-	}
-
-	var params [][]byte
-	params = append(params, []byte("dead"))
-	params = append(params, []byte(topic))
-	params = append(params, []byte(bindKey))
-	line := bytes.Join(params, []byte(" "))
-	if _, err := c.conn.Write(line); err != nil {
-		return err
-	}
-	if _, err := c.conn.Write([]byte{'\n'}); err != nil {
+// pop command
+// pop <topic:required> <queue:optional>
+func (rpc *RpcClient) Pop(data *PopSchema) error {
+	if err := data.validate(); err != nil {
 		return err
 	}
 
-	return nil
-}
-
-// 死信
-func (c *Client) Dead_back(topic string, num int) error {
-	if len(topic) == 0 {
-		return ErrTopicEmpty
+	stream, err := rpc.client.Pop(context.Background())
+	if err != nil {
+		return NewFatalClientErr(ErrRequest, err.Error())
 	}
 
-	var params [][]byte
-	params = append(params, []byte("dead"))
-	params = append(params, []byte(topic))
-	params = append(params, []byte(strconv.Itoa(num)))
-	line := bytes.Join(params, []byte(" "))
-	if _, err := c.conn.Write(line); err != nil {
-		return err
+	// ready to read
+	req := new(pb.PopRequest)
+	req.Topic = data.Topic
+	req.Queue = data.Queue
+	req.ReqStatus = 1
+	if err := stream.Send(req); err != nil {
+		return NewFatalClientErr(ErrRequest, err.Error())
 	}
-	if _, err := c.conn.Write([]byte{'\n'}); err != nil {
-		return err
+	resp, err := stream.Recv()
+	if err != nil {
+		return NewFatalClientErr(ErrRequest, err.Error())
 	}
-
-	return nil
-}
-
-// declare queue
-// queue <topic_name> <bind_key>\n
-func (c *Client) Declare(topic, bindKey string) error {
-	if len(topic) == 0 {
-		return ErrTopicEmpty
+	if resp.Message != "ready" {
+		return NewFatalClientErr(ErrRequest, "unknown error.")
 	}
 
-	var params [][]byte
-	params = append(params, []byte("queue"))
-	params = append(params, []byte(topic))
-	params = append(params, []byte(bindKey))
-	line := bytes.Join(params, []byte(" "))
-	if _, err := c.conn.Write(line); err != nil {
-		return err
-	}
-	if _, err := c.conn.Write([]byte{'\n'}); err != nil {
-		return err
-	}
+	// begin to read
+	for {
+		req := new(pb.PopRequest)
+		req.ReqStatus = 2
 
-	return nil
-}
-
-// 生产消息
-// pub <topic_name> <route_key> <delay-time>
-// [ 4-byte size in bytes ][ N-byte binary data ]
-func (c *Client) Push(pkg MsgPkg) error {
-	if len(pkg.Topic) == 0 {
-		return ErrTopicEmpty
-	}
-
-	var params [][]byte
-	params = append(params, []byte("pub"))
-	params = append(params, []byte(pkg.Topic))
-	params = append(params, []byte(pkg.RouteKey))
-	params = append(params, []byte(strconv.Itoa(pkg.Delay)))
-	line := bytes.Join(params, []byte(" "))
-	if _, err := c.conn.Write(line); err != nil {
-		return err
-	}
-	if _, err := c.conn.Write([]byte{'\n'}); err != nil {
-		return err
-	}
-
-	// write msg.body
-	bodylen := make([]byte, 4)
-	body := pkg.Body
-	binary.BigEndian.PutUint32(bodylen, uint32(len(body)))
-	if _, err := c.conn.Write(bodylen); err != nil {
-		return err
-	}
-	if _, err := c.conn.Write([]byte(body)); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// 批量生产消息
-// mpub <topic_name> <num>
-// <msg.len> <[]byte({"delay":1,"body":"xxx","topic":"xxx","routeKey":"xxx"})>
-// <msg.len> <[]byte({"delay":1,"body":"xxx","topic":"xxx","routeKey":"xxx"})>
-func (c *Client) Mpush(topic string, msgs []MMsgPkg, routeKey string) error {
-	if len(topic) == 0 {
-		return ErrTopicEmpty
-	}
-	lmsg := len(msgs)
-	if lmsg == 0 {
-		return errors.New("msgs is empty")
-	}
-
-	var params [][]byte
-	params = append(params, []byte("mpub"))
-	params = append(params, []byte(topic))
-	params = append(params, []byte(strconv.Itoa(lmsg)))
-	line := bytes.Join(params, []byte(" "))
-	if _, err := c.conn.Write(line); err != nil {
-		return err
-	}
-	if _, err := c.conn.Write([]byte{'\n'}); err != nil {
-		return err
-	}
-
-	for i := 0; i < lmsg; i++ {
-		pkg := &MsgPkg{
-			Body:     msgs[i].Body,
-			Delay:    msgs[i].Delay,
-			Topic:    topic,
-			RouteKey: routeKey,
+		if err := stream.Send(req); err != nil {
+			return NewFatalClientErr(ErrRequest, err.Error())
 		}
-		nbyte, err := json.Marshal(pkg)
+		resp, err := stream.Recv()
 		if err != nil {
-			log.Println(err)
-			continue
+			return NewFatalClientErr(ErrRequest, err.Error())
 		}
 
-		bodylen := make([]byte, 4)
-		binary.BigEndian.PutUint32(bodylen, uint32(len(nbyte)))
-		if _, err := c.conn.Write(bodylen); err != nil {
-			return err
-		}
-		if _, err := c.conn.Write(nbyte); err != nil {
-			return err
-		}
+		log.Printf("message.id:%v, message:%v \n", resp.MessageId, resp.Message)
 	}
-
-	return nil
 }
 
-// 确认已消费消息
-// ack <message_id> <topic> <bind_key>\n
-func (c *Client) Ack(topic, msgId, bindKey string) error {
-	if len(topic) == 0 {
-		return ErrTopicEmpty
+// publish <channel:required> <message:required>
+func (rpc *RpcClient) Publish(data *PublishSchema) (string, error) {
+	if err := data.validate(); err != nil {
+		return "", err
 	}
 
-	var params [][]byte
-	params = append(params, []byte("ack"))
-	params = append(params, []byte(msgId))
-	params = append(params, []byte(topic))
-	params = append(params, []byte(bindKey))
-	line := bytes.Join(params, []byte(" "))
-	if _, err := c.conn.Write(line); err != nil {
-		return err
+	req := new(pb.PublishRequest)
+	req.Message = data.Message
+	req.Channel = data.Channel
+	rsp, err := rpc.client.Publish(context.Background(), req)
+	if err != nil {
+		return "", NewFatalClientErr(ErrRequest, err.Error())
+	} else {
+		return rsp.Result, nil
 	}
-	if _, err := c.conn.Write([]byte{'\n'}); err != nil {
+}
+
+// subscribe command
+// subscribe <channel:required>
+func (rpc *RpcClient) Subscribe(data *SubscribeSchema) error {
+	if err := data.validate(); err != nil {
 		return err
 	}
 
-	return nil
-}
-
-// 设置topic配置
-// set <topic> <is_auto_ack>
-func (c *Client) Set(topic string, isAutoAck int) error {
-	if len(topic) == 0 {
-		return ErrTopicEmpty
+	req := new(pb.SubscribeRequest)
+	req.Channel = data.Channel
+	stream, err := rpc.client.Subscribe(context.Background(), req)
+	if err != nil {
+		return NewFatalClientErr(ErrRequest, err.Error())
 	}
 
-	var params [][]byte
-	params = append(params, []byte("set"))
-	params = append(params, []byte(topic))
-	params = append(params, []byte(strconv.Itoa(isAutoAck)))
-	line := bytes.Join(params, []byte(" "))
-	if _, err := c.conn.Write(line); err != nil {
-		return err
-	}
-	if _, err := c.conn.Write([]byte{'\n'}); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// 订阅频道
-// subscribe <channel_name> <message>\n
-func (c *Client) Subscribe(channel string) error {
-	if len(channel) == 0 {
-		return ErrTopicChannel
-	}
-
-	var params [][]byte
-	params = append(params, []byte("subscribe"))
-	params = append(params, []byte(channel))
-	line := bytes.Join(params, []byte(" "))
-	if _, err := c.conn.Write(line); err != nil {
-		return err
-	}
-	if _, err := c.conn.Write([]byte{'\n'}); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// 发布消息
-// publish <channel_name>\n
-// <message_len> <message>
-func (c *Client) Publish(channel, message string) error {
-	if len(channel) == 0 {
-		return ErrTopicChannel
-	}
-
-	var params [][]byte
-	params = append(params, []byte("publish"))
-	params = append(params, []byte(channel))
-	line := bytes.Join(params, []byte(" "))
-	if _, err := c.conn.Write(line); err != nil {
-		return err
-	}
-	if _, err := c.conn.Write([]byte{'\n'}); err != nil {
-		return err
-	}
-
-	bodylen := make([]byte, 4)
-	body := []byte(message)
-	binary.BigEndian.PutUint32(bodylen, uint32(len(body)))
-	if _, err := c.conn.Write(bodylen); err != nil {
-		return err
-	}
-	if _, err := c.conn.Write([]byte(body)); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (c *Client) Recv() (int, []byte) {
-	respTypeBuf := make([]byte, 2)
-	io.ReadFull(c.conn, respTypeBuf)
-	respType := binary.BigEndian.Uint16(respTypeBuf)
-
-	bodyLenBuf := make([]byte, 4)
-	io.ReadFull(c.conn, bodyLenBuf)
-	bodyLen := binary.BigEndian.Uint32(bodyLenBuf)
-
-	bodyBuf := make([]byte, bodyLen)
-	io.ReadFull(c.conn, bodyBuf)
-
-	return int(respType), bodyBuf
-}
-
-// 生产消息
-func Example_Produce(c *Client, topic string, num int, routeKey string) {
-	type bodyCnt struct {
-		From    string `json:"from"`
-		To      string `json:"to"`
-		Content string `json:"content"`
-	}
-
-	for i := 0; i < num; i++ {
-		msg := MsgPkg{}
-		msg.Body = string("hello world")
-		msg.Topic = topic
-		msg.Delay = 0
-		msg.RouteKey = routeKey
-		if err := c.Push(msg); err != nil {
-			log.Fatalln(err)
-		}
-
-		// receive response
-		rtype, data := c.Recv()
-		if rtype == RESP_RESULT {
-			log.Println(string(data))
-		}
-	}
-}
-
-// 声明队列
-func Example_DelcareQueue(c *Client, topic, bindKey string) {
-	if err := c.Declare(topic, bindKey); err != nil {
-		log.Fatalln(err)
-	}
-
-	// receive response
-	rtype, data := c.Recv()
-	log.Println(fmt.Sprintf("rtype:%v, result:%v", rtype, string(data)))
-}
-
-// 消费消息
-func Example_Consume(c *Client, topic, bindKey string) {
-	if err := c.Pop(topic, bindKey); err != nil {
-		log.Println(err)
-	}
-
-	// receive response
-	rtype, data := c.Recv()
-	log.Println(fmt.Sprintf("rtype:%v, result:%v", rtype, string(data)))
-}
-
-// 确认已消费消息
-func Example_Ack(c *Client, topic, msgId, bindKey string) {
-	if err := c.Ack(topic, msgId, bindKey); err != nil {
-		log.Println(err)
-	}
-
-	// receive response
-	rtype, data := c.Recv()
-	log.Println(fmt.Sprintf("rtype:%v, result:%v", rtype, string(data)))
-}
-
-// 设置topic信息,目前只有isAutoAck选项
-func Example_Set(c *Client, topic string, isAutoAck int) {
-	if err := c.Set(topic, isAutoAck); err != nil {
-		log.Println(err)
-	}
-
-	// receive response
-	rtype, data := c.Recv()
-	log.Println(fmt.Sprintf("rtype:%v, result:%v", rtype, string(data)))
-}
-
-func Example_Dead(c *Client, topic, bindKey string) {
-	if err := c.Dead(topic, bindKey); err != nil {
-		log.Println(err)
-	}
-
-	// receive response
-	rtype, data := c.Recv()
-	log.Println(fmt.Sprintf("rtype:%v, result:%v", rtype, string(data)))
-}
-
-// 死信
-func Example_Dead_back(c *Client, topic string, num int) {
-	if err := c.Dead_back(topic, num); err != nil {
-		log.Println(err)
-	}
-
-	// receive response
-	rtype, data := c.Recv()
-	log.Println(fmt.Sprintf("rtype:%v, result:%v", rtype, string(data)))
-}
-
-// 轮询模式消费消息
-// 当server端没有消息后,sleep 3秒后再次请求
-func Example_Loop_Consume(c *Client, topic, bindKey string) {
 	for {
-		if err := c.Pop(topic, bindKey); err != nil {
-			if ok, _ := regexp.MatchString("broken pipe", err.Error()); ok {
-				log.Fatalln(err)
-			}
+		rsp, err := stream.Recv()
+		if err != nil {
+			return NewFatalClientErr(ErrRequest, err.Error())
 		}
 
-		// receive response
-		rtype, data := c.Recv()
-		if rtype == gnode.RESP_MESSAGE {
-			log.Println(string(data))
-		} else if rtype == gnode.RESP_ERROR {
-			log.Fatalln(string(data))
-		} else {
-			log.Println(string(data))
-		}
+		log.Printf("recv:%v", rsp.Message)
 	}
 }
 
-// 批量生产消息
-func Example_MProduce(c *Client, topic string, num int, bindKey string) {
-	total := num
-	var msgs []MMsgPkg
-	for i := 0; i < total; i++ {
-		msgs = append(msgs, MMsgPkg{"golang_" + strconv.Itoa(i), 0})
-	}
-	if err := c.Mpush(topic, msgs, bindKey); err != nil {
-		log.Fatalln(err)
-	}
+var clients []*RpcClient
 
-	// receive response
-	rtype, data := c.Recv()
-	log.Println(fmt.Sprintf("rtype:%v, result:%v", rtype, string(data)))
-}
-
-// 订阅消息
-func Example_Subscribe(c *Client, channel string) {
-	if err := c.Subscribe(channel); err != nil {
-		log.Println(err)
-	}
-
-	// receive response
-	i := 0
-	_ = c.conn.SetReadDeadline(time.Time{})
-	log.Println(c.conn.LocalAddr())
-	for {
-		i++
-		if i > 100 {
-			break
-		}
-
-		// receive response
-		rtype, data := c.Recv()
-		fmt.Println(fmt.Sprintf("rtype:%v, result:%v", rtype, string(data)))
-	}
-}
-
-// 发布消息
-func Example_Publish(c *Client, channel, message string) {
-	if err := c.Publish(channel, message); err != nil {
-		log.Println(err)
-	}
-
-	// receive response
-	rtype, data := c.Recv()
-	log.Println(fmt.Sprintf("rtype:%v, result:%v", rtype, string(data)))
-}
-
-var clients []*Client
-
-// 初始化客户端,建立和注册中心节点连接
-func InitClients(endpoints string) ([]*Client, error) {
+func InitRpcClients(endpoints string) ([]*RpcClient, error) {
 	if len(endpoints) == 0 {
 		return nil, fmt.Errorf("endpoints is empty.")
 	}
@@ -546,7 +175,7 @@ func InitClients(endpoints string) ([]*Client, error) {
 		return nil, err
 	}
 
-	var clients []*Client
+	var clients []*RpcClient
 	node := make(map[string]string)
 	for _, ev := range resp.Kvs {
 		fmt.Printf("%s => %s\n", ev.Key, ev.Value)
@@ -556,20 +185,19 @@ func InitClients(endpoints string) ([]*Client, error) {
 
 		tcpAddr := node["tcp_addr"]
 		weight, _ := strconv.Atoi(node["weight"])
-		c := NewClient(tcpAddr, weight)
+		c := NewRpcClient(tcpAddr, weight)
 		clients = append(clients, c)
 	}
 
 	return clients, nil
 }
 
-// 权重模式
-func GetClientByWeightMode(endpoints string) *Client {
+func GetRpcClientByWeightMode(endpoints string) (*RpcClient, error) {
 	if len(clients) == 0 {
 		var err error
-		clients, err = InitClients(endpoints)
+		clients, err = InitRpcClients(endpoints)
 		if err != nil {
-			log.Fatalln(err)
+			return nil, err
 		}
 	}
 
@@ -585,35 +213,33 @@ func GetClientByWeightMode(endpoints string) *Client {
 		prev := w
 		w = w + c.weight
 		if randValue > prev && randValue <= w {
-			return c
+			return c, nil
 		}
 	}
 
-	return nil
+	return nil, NewClientErr(ErrRequest, "not client.")
 }
 
-// 随机模式
-func GetClientByRandomMode(endpoints string) *Client {
+func GetClientByRandomMode(endpoints string) (*RpcClient, error) {
 	if len(clients) == 0 {
 		var err error
-		clients, err = InitClients(endpoints)
+		clients, err = InitRpcClients(endpoints)
 		if err != nil {
-			log.Fatalln(err)
+			return nil, err
 		}
 	}
 
 	rand.Seed(time.Now().UnixNano())
 	k := rand.Intn(len(clients))
-	return clients[k]
+	return clients[k], nil
 }
 
-// 平均模式
-func GetClientByAvgMode(endpoints string) *Client {
+func GetClientByAvgMode(endpoints string) (*RpcClient, error) {
 	if len(clients) == 0 {
 		var err error
-		clients, err = InitClients(endpoints)
+		clients, err = InitRpcClients(endpoints)
 		if err != nil {
-			log.Fatalln(err)
+			return nil, err
 		}
 	}
 
@@ -623,5 +249,5 @@ func GetClientByAvgMode(endpoints string) *Client {
 		clients = append(clients[1:], c)
 	}
 
-	return c
+	return c, nil
 }

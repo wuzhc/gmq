@@ -369,7 +369,7 @@ func (q *queue) read(isAutoAck bool) (*readQueueData, error) {
 		hasMsg := <-q.notifyReadMsgChan
 		q.Lock()
 		if !hasMsg {
-			return nil, nil
+			return nil, ErrQueueClosed
 		}
 	}
 

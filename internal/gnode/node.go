@@ -38,7 +38,7 @@ type etcd struct {
 func New(cfg *configs.GnodeConfig) *Gnode {
 	return &Gnode{
 		cfg:      cfg,
-		version:  "2.0",
+		version:  "3.0",
 		exitChan: make(chan struct{}),
 	}
 }
@@ -70,8 +70,6 @@ func (gn *Gnode) Run() {
 
 	gn.ctx = ctx
 	gn.wg.Wrap(NewDispatcher(ctx).Run)
-	gn.wg.Wrap(NewHttpServ(ctx).Run)
-	gn.wg.Wrap(NewTcpServ(ctx).Run)
 
 	// whether to enable cluster, if true,
 	// etcd must be started and the node will registers information to etcd
@@ -88,7 +86,7 @@ func (gn *Gnode) Run() {
 func (gn *Gnode) register() error {
 	cli, err := clientv3.New(clientv3.Config{
 		Endpoints:   gn.cfg.EtcdEndPoints,
-		DialTimeout: 2 * time.Second,
+		DialTimeout: 3 * time.Second,
 	})
 	if err != nil {
 		return fmt.Errorf("create etcd client failed, %s\n", err)
@@ -151,8 +149,7 @@ func (gn *Gnode) keepAlive() (<-chan *clientv3.LeaseKeepAliveResponse, error) {
 
 	key := fmt.Sprintf("/gmq/node-%d", gn.cfg.NodeId)
 	info := make(map[string]string)
-	info["tcp_addr"] = gn.cfg.TcpServAddr
-	info["http_addr"] = gn.cfg.HttpServAddr
+	info["server_addr"] = gn.cfg.RpcServAddr
 	info["weight"] = strconv.Itoa(gn.cfg.NodeWeight)
 	info["node_id"] = strconv.Itoa(gn.cfg.NodeId)
 	info["join_time"] = time.Now().Format("2006-01-02 15:04:05")
@@ -192,12 +189,8 @@ func NewGnodeConfig() *configs.GnodeConfig {
 
 	// command options
 	var endpoints string
-	flag.StringVar(&endpoints, "etcd_endpoints", cfg.TcpServAddr, "etcd endpoints")
-	flag.StringVar(&cfg.TcpServAddr, "tcp_addr", cfg.TcpServAddr, "tcp address")
-	flag.StringVar(&cfg.GregisterAddr, "register_addr", cfg.GregisterAddr, "register address")
-	flag.StringVar(&cfg.HttpServAddr, "http_addr", cfg.HttpServAddr, "http address")
-	flag.StringVar(&cfg.ReportTcpAddr, "report_tcp_addr", cfg.ReportTcpAddr, "report tcp address")
-	flag.StringVar(&cfg.ReportHttpAddr, "report_http_addr", cfg.ReportHttpAddr, "report http address")
+	flag.StringVar(&endpoints, "etcd_endpoints", strings.Join(cfg.EtcdEndPoints, ","), "etcd endpoints")
+	flag.StringVar(&cfg.RpcServAddr, "rpc_addr", cfg.RpcServAddr, "rpc address")
 	flag.IntVar(&cfg.NodeId, "node_id", cfg.NodeId, "node unique id")
 	flag.IntVar(&cfg.NodeWeight, "node_weight", cfg.NodeWeight, "node weight")
 	flag.IntVar(&cfg.MsgTTR, "msg_ttr", cfg.MsgTTR, "msg ttr")
@@ -241,8 +234,6 @@ func LoadConfigFromFile(cfgFile string) (*configs.GnodeConfig, error) {
 	cfg.NodeWeight, _ = c.Section("node").Key("weight").Int()
 	cfg.MsgTTR, _ = c.Section("node").Key("msgTTR").Int()
 	cfg.MsgMaxRetry, _ = c.Section("node").Key("msgMaxRetry").Int()
-	cfg.ReportTcpAddr = c.Section("node").Key("reportTcpaddr").String()
-	cfg.ReportHttpAddr = c.Section("node").Key("reportHttpaddr").String()
 	cfg.DataSavePath = c.Section("node").Key("dataSavePath").String()
 
 	// log config
@@ -253,19 +244,10 @@ func LoadConfigFromFile(cfgFile string) (*configs.GnodeConfig, error) {
 	cfg.LogTargetType = c.Section("log").Key("target_type").String()
 
 	// http server config
-	cfg.HttpServAddr = c.Section("http_server").Key("addr").String()
-	cfg.HttpServCertFile = c.Section("http_server").Key("certFile").String()
-	cfg.HttpServKeyFile = c.Section("http_server").Key("keyFile").String()
-	cfg.HttpServEnableTls, _ = c.Section("http_server").Key("enableTls").Bool()
-
-	// tcp server config
-	cfg.TcpServAddr = c.Section("tcp_server").Key("addr").String()
-	cfg.TcpServCertFile = c.Section("tcp_server").Key("certFile").String()
-	cfg.TcpServKeyFile = c.Section("tcp_server").Key("keyFile").String()
-	cfg.TcpServEnableTls, _ = c.Section("tcp_server").Key("enableTls").Bool()
-
-	// register config
-	cfg.GregisterAddr = c.Section("gregister").Key("addr").String()
+	cfg.RpcServAddr = c.Section("rpc_server").Key("addr").String()
+	cfg.RpcServCertFile = c.Section("rpc_server").Key("certFile").String()
+	cfg.RpcServKeyFile = c.Section("rpc_server").Key("keyFile").String()
+	cfg.RpcServEnableTls, _ = c.Section("rpc_server").Key("enableTls").Bool()
 
 	return cfg, nil
 }

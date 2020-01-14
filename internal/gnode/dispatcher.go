@@ -1,8 +1,11 @@
 package gnode
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -12,21 +15,21 @@ import (
 )
 
 type Dispatcher struct {
-	ctx        *Context
-	db         *bolt.DB
-	wg         utils.WaitGroupWrapper
-	closed     bool
-	poolSize   int
-	snowflake  *utils.Snowflake
-	exitChan   chan struct{}
+	ctx       *Context
+	db        *bolt.DB
+	wg        utils.WaitGroupWrapper
+	closed    bool
+	poolSize  int
+	snowflake *utils.Snowflake
+	exitChan  chan struct{}
 
 	// topic
-	topics          map[string]*Topic
-	topicMux        sync.RWMutex
+	topics   map[string]*Topic
+	topicMux sync.RWMutex
 
 	// channel
-	channels          map[string]*Channel
-	channelMux        sync.RWMutex
+	channels   map[string]*Channel
+	channelMux sync.RWMutex
 }
 
 func NewDispatcher(ctx *Context) *Dispatcher {
@@ -42,12 +45,12 @@ func NewDispatcher(ctx *Context) *Dispatcher {
 	}
 
 	dispatcher := &Dispatcher{
-		db:         db,
-		ctx:        ctx,
-		snowflake:  sn,
-		topics:     make(map[string]*Topic),
-		channels:   make(map[string]*Channel),
-		exitChan:   make(chan struct{}),
+		db:        db,
+		ctx:       ctx,
+		snowflake: sn,
+		topics:    make(map[string]*Topic),
+		channels:  make(map[string]*Channel),
+		exitChan:  make(chan struct{}),
 	}
 
 	ctx.Dispatcher = dispatcher
@@ -57,10 +60,35 @@ func NewDispatcher(ctx *Context) *Dispatcher {
 func (d *Dispatcher) Run() {
 	defer d.LogInfo("dispatcher exit.")
 	d.wg.Wrap(d.scanLoop)
+	d.wg.Wrap(d.startGrpcServer)
 
 	select {
 	case <-d.ctx.Gnode.exitChan:
 		d.exit()
+	}
+}
+
+func (d *Dispatcher) startGrpcServer() {
+	listener, err := net.Listen("tcp", d.ctx.Conf.RpcServAddr)
+	if err != nil {
+		d.LogError(err.Error())
+		os.Exit(1) // exit process
+	}
+
+	go func() {
+		select {
+		case <-d.ctx.Gnode.exitChan:
+			if err := listener.Close(); err != nil {
+				d.LogError(err.Error())
+			}
+		}
+	}()
+
+	ctx := context.WithValue(context.Background(), "logger", d.ctx.Logger)
+	serv := NewGrpcServer(d, ctx)
+	if err := serv.Serve(listener); err != nil {
+		d.LogInfo(err.Error())
+		return
 	}
 }
 
@@ -221,13 +249,20 @@ func (d *Dispatcher) GetTopic(name string) *Topic {
 // returns error when it is not exist
 func (d *Dispatcher) GetExistTopic(name string) (*Topic, error) {
 	d.topicMux.RLock()
-	defer d.topicMux.RUnlock()
 
 	if t, ok := d.topics[name]; ok {
+		d.topicMux.RUnlock()
 		return t, nil
-	} else {
-		return nil, errors.New("topic is not exist")
 	}
+
+	d.topicMux.RUnlock()
+	topicMetaPath := fmt.Sprintf("%s/%s.meta", d.ctx.Conf.DataSavePath, name)
+	isExist, _ := utils.PathExists(topicMetaPath)
+	if !isExist {
+		return nil, fmt.Errorf("topic isn't exist.")
+	}
+
+	return d.GetTopic(name), nil
 }
 
 // get all topics
@@ -270,6 +305,19 @@ func (d *Dispatcher) GetChannel(key string) *Channel {
 	return c
 }
 
+// get channel
+// returns error when it is not exist
+func (d *Dispatcher) GetExistChannel(name string) (*Channel, error) {
+	d.channelMux.RLock()
+	defer d.channelMux.RUnlock()
+
+	if c, ok := d.channels[name]; ok {
+		return c, nil
+	} else {
+		return nil, errors.New("channel is not exist")
+	}
+}
+
 // remove channel by channel.key
 func (d *Dispatcher) RemoveChannel(key string) {
 	d.channelMux.Lock()
@@ -278,63 +326,6 @@ func (d *Dispatcher) RemoveChannel(key string) {
 	}
 
 	d.channelMux.Unlock()
-}
-
-// 消息推送
-// 每一条消息都需要dispatcher统一分配msg.Id
-func (d *Dispatcher) push(name string, routeKey string, data []byte, delay int) (uint64, error) {
-	msgId := d.snowflake.Generate()
-	msg := &Msg{}
-	msg.Id = msgId
-	msg.Delay = uint32(delay)
-	msg.Body = data
-
-	topic := d.GetTopic(name)
-	err := topic.push(msg, routeKey)
-	msg = nil
-
-	return msgId, err
-}
-
-// consume message
-func (d *Dispatcher) pop(name, bindKey string) (*Msg, error) {
-	topic := d.GetTopic(name)
-	return topic.pop(bindKey)
-}
-
-// consume dead message
-func (d *Dispatcher) dead(name, bindKey string) (*Msg, error) {
-	topic := d.GetTopic(name)
-	return topic.dead(bindKey)
-}
-
-// ack message
-func (d *Dispatcher) ack(name string, msgId uint64, bindKey string) error {
-	topic := d.GetTopic(name)
-	return topic.ack(msgId, bindKey)
-}
-
-// config
-func (d *Dispatcher) set(name string, configure *topicConfigure) error {
-	topic := d.GetTopic(name)
-	return topic.set(configure)
-}
-
-// declare queue
-func (d *Dispatcher) declareQueue(queueName, bindKey string) error {
-	topic := d.GetTopic(queueName)
-	return topic.delcareQueue(bindKey)
-}
-
-// subscribe channel
-func (d *Dispatcher) subscribe(channelName string, conn *TcpConn) error {
-	channel := d.GetChannel(channelName)
-	return channel.addConn(conn)
-}
-
-func (d *Dispatcher) publish(channelName string, msg []byte) error {
-	channel := d.GetChannel(channelName)
-	return channel.publish(msg)
 }
 
 func (d *Dispatcher) LogError(msg ...interface{}) {

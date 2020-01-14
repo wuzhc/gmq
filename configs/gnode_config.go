@@ -15,27 +15,14 @@ type GnodeConfig struct {
 	EnableCluster     bool
 	HeartbeatInterval int
 
-	// gresiter
-	GregisterAddr string
-
 	// etcd
 	EtcdEndPoints []string
 
-	// http server
-	HttpServAddr      string
-	HttpServEnableTls bool
-	HttpServCertFile  string
-	HttpServKeyFile   string
-
-	// tcp server
-	TcpServAddr      string
-	TcpServEnableTls bool
-	TcpServCertFile  string
-	TcpServKeyFile   string
-
-	// report addr
-	ReportHttpAddr string
-	ReportTcpAddr  string
+	// rpc server
+	RpcServAddr      string
+	RpcServEnableTls bool
+	RpcServCertFile  string
+	RpcServKeyFile   string
 
 	// log
 	LogTargetType string
@@ -106,22 +93,7 @@ func (c *GnodeConfig) SetDefault() {
 	}
 
 	// server default config
-	if len(c.HttpServAddr) == 0 {
-		c.HttpServAddr = "127.0.0.1:9504"
-	}
-	if len(c.TcpServAddr) == 0 {
-		c.TcpServAddr = "127.0.0.1:9503"
-	}
-
-	// gresiger default config
-	if len(c.GregisterAddr) == 0 {
-		c.GregisterAddr = "http://127.0.0.1:9595"
-	}
-
-	if len(c.ReportHttpAddr) == 0 {
-		c.ReportHttpAddr = c.HttpServAddr
-	}
-	if len(c.ReportTcpAddr) == 0 {
-		c.ReportTcpAddr = c.TcpServAddr
+	if len(c.RpcServAddr) == 0 {
+		c.RpcServAddr = ":9503"
 	}
 }

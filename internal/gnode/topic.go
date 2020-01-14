@@ -88,9 +88,10 @@ func NewTopic(name string, ctx *Context) *Topic {
 func (t *Topic) init() {
 	err := t.dispatcher.db.Update(func(tx *bolt.Tx) error {
 		if _, err := tx.CreateBucketIfNotExists([]byte(t.name)); err != nil {
-			return errors.New(fmt.Sprintf("create bucket: %s", err))
+			return fmt.Errorf("create %s bucket failed, %s", t.name, err)
+		} else {
+			return nil
 		}
-		return nil
 	})
 	if err != nil {
 		panic(err)
@@ -345,10 +346,10 @@ func (t *Topic) retrievalBucketExpireMsg() error {
 				goto deleteBucketElem
 			}
 
-			for _, bindKey := range dg.BindKeys {
-				queue := t.getQueueByBindKey(bindKey)
+			for _, name := range dg.BindKeys {
+				queue := t.getQueueByName(name)
 				if queue == nil {
-					t.LogError(fmt.Sprintf("bindkey:%s is not associated with queue", bindKey))
+					t.LogError(fmt.Sprintf("queue.%s isn't exits.", name))
 					continue
 				}
 				if err := queue.write(Encode(dg.Msg)); err != nil {
@@ -439,10 +440,10 @@ func (t *Topic) retrievalQueueExipreMsg() error {
 }
 
 // 消息消费
-func (t *Topic) pop(bindKey string) (*Msg, error) {
-	queue := t.getQueueByBindKey(bindKey)
+func (t *Topic) pop(name string) (*Msg, error) {
+	queue := t.getQueueByName(name)
 	if queue == nil {
-		return nil, fmt.Errorf("bindKey:%s can't match queue", bindKey)
+		return nil, fmt.Errorf("queue.%s is't exits.", name)
 	}
 
 	data, err := queue.read(t.isAutoAck)
@@ -483,13 +484,20 @@ func (t *Topic) dead(bindKey string) (*Msg, error) {
 }
 
 // 消息确认
-func (t *Topic) ack(msgId uint64, bindKey string) error {
-	queue := t.getQueueByBindKey(bindKey)
+func (t *Topic) ack(msgId uint64, name string) error {
+	queue := t.getQueueByName(name)
 	if queue == nil {
-		return fmt.Errorf("bindkey:%s is not associated with queue", bindKey)
+		return fmt.Errorf("queue.%s is't exist.", name)
 	}
 
 	return queue.ack(msgId)
+}
+
+type topicConfigure struct {
+	isAutoAck int
+	msgTTR    int
+	msgRetry  int
+	mode      int
 }
 
 // 设置topic信息
@@ -525,18 +533,18 @@ func (t *Topic) set(configure *topicConfigure) error {
 }
 
 // 声明队列，绑定key必须是唯一值
-// 队列名称为<topic_name>_<bind_key>
-func (t *Topic) delcareQueue(bindKey string) error {
-	queue := t.getQueueByBindKey(bindKey)
+// 队列名称为<topic_name>_<queue_name>
+func (t *Topic) delcareQueue(name string) error {
+	queue := t.getQueueByName(name)
 	if queue != nil {
-		return fmt.Errorf("bindKey %s has exist.", bindKey)
+		return fmt.Errorf("queue.name %s has exist.", name)
 	}
 
 	t.queueMux.Lock()
 	defer t.queueMux.Unlock()
 
-	queueName := fmt.Sprintf("%s_%s", t.name, bindKey)
-	t.queues[bindKey] = NewQueue(queueName, bindKey, t.ctx, t)
+	queueName := fmt.Sprintf("%s_%s", t.name, name)
+	t.queues[name] = NewQueue(queueName, name, t.ctx, t)
 	return nil
 }
 
@@ -573,15 +581,15 @@ func (t *Topic) getQueuesByRouteKey(routeKey string) []*queue {
 }
 
 // 根据绑定键获取队列
-func (t *Topic) getQueueByBindKey(bindKey string) *queue {
+func (t *Topic) getQueueByName(name string) *queue {
 	t.queueMux.Lock()
 	defer t.queueMux.Unlock()
 
-	if len(bindKey) == 0 {
-		bindKey = DEFAULT_KEY
+	if len(name) == 0 {
+		name = DEFAULT_KEY
 	}
 
-	if q, ok := t.queues[bindKey]; ok {
+	if q, ok := t.queues[name]; ok {
 		return q
 	} else {
 		return nil
