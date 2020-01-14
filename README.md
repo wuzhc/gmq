@@ -12,7 +12,6 @@
 - 支持死信队列
 - 提供tls可选安全加密
 - 提供http api接口
-- 提供web管理界面
 - 内置了pprof调试工具
 
 ## 1. 模型
@@ -120,33 +119,20 @@ curl "http://127.0.0.1:9504/pop?topic=ketang&bindKey=homework"
 curl "http://127.0.0.1:9504/ack?msgId=384261148721025024&topic=ketang&bindKey=homework"
 ```
 
-## 4. 客户端
-gmq提供了一个golang版本的客户端,目前还只是demo级的,参考[gmq-client客户端](https://github.com/wuzhc/gmq-client-go)
-
-
-## 5. web管理系统
-在`gmq-web`系统中,可以进行手动注册注销节点,查看各个topic统计信息,修改topic配置信息,进行消息推送,拉取,确认等等功能,参考[gmq-web管理系统](https://github.com/wuzhc/gmq-web),以下是`gmq-web`的截图
-![gmq-web](https://gitee.com/wuzhc123/zcnote/raw/master/images/gmq/gmq-web%E4%B8%BB%E9%A2%98%E5%88%97%E8%A1%A8.png)
-
-
-## 6. 相关文章
+## 5. 相关文章
 - [gmq架构设计](https://github.com/wuzhc/zcnote/blob/master/golang/gmq/gmq%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8.md)
 - [gmq通信协议](https://github.com/wuzhc/zcnote/blob/master/golang/gmq/gmq%E9%80%9A%E4%BF%A1%E5%8D%8F%E8%AE%AE.md)
 - [gmq多节点使用](https://github.com/wuzhc/zcnote/blob/master/golang/gmq/gmq%E5%A4%9A%E8%8A%82%E7%82%B9%E4%BD%BF%E7%94%A8.md)
 - [gmq消息持久化](https://github.com/wuzhc/zcnote/blob/master/golang/gmq/gmq%E6%8C%81%E4%B9%85%E5%8C%96%E5%AD%98%E5%82%A8.md) 
 - [gmq消息确认机制](https://github.com/wuzhc/zcnote/blob/master/golang/gmq/gmq%E6%B6%88%E6%81%AF%E7%A1%AE%E8%AE%A4%E6%9C%BA%E5%88%B6.md)
-- [gmq延迟消息机制](https://github.com/wuzhc/zcnote/blob/master/golang/gmq/gmq%E5%BB%B6%E8%BF%9F%E6%B6%88%E6%81%AF%E6%9C%BA%E5%88%B6.md)
-- [gmq队列处理消息过程]()
 - [gmq性能分析pprof工具](https://github.com/wuzhc/zcnote/blob/master/golang/gmq/gmq%E6%80%A7%E8%83%BD%E7%9B%91%E6%8E%A7.md)
-- [用docker运行gmq](https://github.com/wuzhc/zcnote/blob/master/golang/gmq/gmq%E5%AE%B9%E5%99%A8docker.md)
 
-## 7. 链接
-- [gmq-client客户端](https://github.com/wuzhc/gmq-client-go)
-- [gmq-web管理系统](https://github.com/wuzhc/gmq-web)
+## 6. 链接
 - [gmq-redis基于redis版本的gmq](https://github.com/wuzhc/gmq-redis)
 
-## 8. 未来
-- 没有应用级别的客户端,目前只是一个demo级别的例子,并且没有失败重试功能
-- 消息存在丢失情况,在内存映射的文件写数据,会延迟写到磁盘文件,除非手动触发`msync`系统调用,考虑做镜像节点
-- 提供完善的消息追踪功能,目前无法根据消息ID在队列中定位,因为目前没有消息ID和offset建立的map关系
-
+## 7. 未来
+- 重构通信模块，使用grpc进行通信
+- 重新设计消息持久化存储（应该会参考rocketmq和kafka）
+- 支持消息查询，以便追踪消息
+- 提供多种编程语言的客户端
+- 完善文档
