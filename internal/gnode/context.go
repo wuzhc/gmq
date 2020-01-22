@@ -7,7 +7,6 @@ import (
 
 type Context struct {
 	Gnode      *Gnode
-	Dispatcher *Dispatcher
 	Conf       *configs.GnodeConfig
 	Logger     *logs.Dispatcher
 }

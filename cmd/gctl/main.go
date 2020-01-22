@@ -25,7 +25,6 @@ var (
 	message       string
 	nodeAddr      string
 	etcdEndpoints string
-	pushNum       int
 	popNum        int
 	delay         int
 	msgId         string
@@ -63,18 +62,18 @@ func main() {
 			Delay:    int32(delay),
 			Message:  message,
 		}
-		messageId, err := rpc.Push(data)
+		messageId, err := rpc.Put(data)
 		if err != nil {
 			log.Fatalln(err)
 		} else {
 			log.Printf("recv message.id : %v\n", messageId)
 		}
-	case "pop":
+	case "pull":
 		data := &gctl.PopSchema{
 			Topic: topic,
 			Queue: queue,
 		}
-		err := rpc.Pop(data)
+		err := rpc.Pull(data)
 		if err != nil {
 			log.Fatalln(err)
 		}
@@ -84,31 +83,6 @@ func main() {
 		// 拉取死信消息
 	case "ack":
 		// 确认已消费
-	case "publish":
-		data := &gctl.PublishSchema{
-			Channel: channel,
-			Message: message,
-		}
-		resp, err := rpc.Publish(data)
-		if err != nil {
-			log.Fatalln(err)
-		} else {
-			log.Printf("recv result: %v\n", resp)
-		}
-	case "subscribe":
-		data := &gctl.SubscribeSchema{Channel: channel}
-		err := rpc.Subscribe(data)
-		if err != nil {
-			log.Fatalln(err)
-		}
-	case "push_by_weight":
-		// 多节点下,按节点权重推送消息
-	case "push_by_rand":
-		// 多节点下,按随机模式推送消息
-	case "push_by_avg":
-		// 多节点下,按平均模式推送消息
-	case "pop_by_weight":
-		// 多节点下,按节点权重消费消息
 	case "test":
 	default:
 		log.Fatalf("unknown '%v' command.\n", cmd)

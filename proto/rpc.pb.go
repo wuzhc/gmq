@@ -25,614 +25,274 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
 
-type PushRequest struct {
-	Topic                string   `protobuf:"bytes,1,opt,name=topic,proto3" json:"topic,omitempty"`
-	Message              string   `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	RouteKey             string   `protobuf:"bytes,3,opt,name=routeKey,proto3" json:"routeKey,omitempty"`
-	Delay                int32    `protobuf:"varint,4,opt,name=delay,proto3" json:"delay,omitempty"`
+type PutRequest struct {
+	Topic                []byte   `protobuf:"bytes,1,opt,name=topic,proto3" json:"topic,omitempty"`
+	Message              []byte   `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	Tag                  []byte   `protobuf:"bytes,3,opt,name=tag,proto3" json:"tag,omitempty"`
+	QueueId              int32    `protobuf:"varint,4,opt,name=queueId,proto3" json:"queueId,omitempty"`
+	Delay                int32    `protobuf:"varint,5,opt,name=delay,proto3" json:"delay,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *PushRequest) Reset()         { *m = PushRequest{} }
-func (m *PushRequest) String() string { return proto.CompactTextString(m) }
-func (*PushRequest) ProtoMessage()    {}
-func (*PushRequest) Descriptor() ([]byte, []int) {
+func (m *PutRequest) Reset()         { *m = PutRequest{} }
+func (m *PutRequest) String() string { return proto.CompactTextString(m) }
+func (*PutRequest) ProtoMessage()    {}
+func (*PutRequest) Descriptor() ([]byte, []int) {
 	return fileDescriptor_77a6da22d6a3feb1, []int{0}
 }
 
-func (m *PushRequest) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_PushRequest.Unmarshal(m, b)
+func (m *PutRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_PutRequest.Unmarshal(m, b)
 }
-func (m *PushRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_PushRequest.Marshal(b, m, deterministic)
+func (m *PutRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_PutRequest.Marshal(b, m, deterministic)
 }
-func (m *PushRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_PushRequest.Merge(m, src)
+func (m *PutRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PutRequest.Merge(m, src)
 }
-func (m *PushRequest) XXX_Size() int {
-	return xxx_messageInfo_PushRequest.Size(m)
+func (m *PutRequest) XXX_Size() int {
+	return xxx_messageInfo_PutRequest.Size(m)
 }
-func (m *PushRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_PushRequest.DiscardUnknown(m)
+func (m *PutRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_PutRequest.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_PushRequest proto.InternalMessageInfo
+var xxx_messageInfo_PutRequest proto.InternalMessageInfo
 
-func (m *PushRequest) GetTopic() string {
+func (m *PutRequest) GetTopic() []byte {
 	if m != nil {
 		return m.Topic
 	}
-	return ""
+	return nil
 }
 
-func (m *PushRequest) GetMessage() string {
+func (m *PutRequest) GetMessage() []byte {
 	if m != nil {
 		return m.Message
 	}
-	return ""
+	return nil
 }
 
-func (m *PushRequest) GetRouteKey() string {
+func (m *PutRequest) GetTag() []byte {
 	if m != nil {
-		return m.RouteKey
+		return m.Tag
 	}
-	return ""
+	return nil
 }
 
-func (m *PushRequest) GetDelay() int32 {
+func (m *PutRequest) GetQueueId() int32 {
+	if m != nil {
+		return m.QueueId
+	}
+	return 0
+}
+
+func (m *PutRequest) GetDelay() int32 {
 	if m != nil {
 		return m.Delay
 	}
 	return 0
 }
 
-type PushReply struct {
+type PutReply struct {
 	MessageId            int64    `protobuf:"varint,1,opt,name=messageId,proto3" json:"messageId,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *PushReply) Reset()         { *m = PushReply{} }
-func (m *PushReply) String() string { return proto.CompactTextString(m) }
-func (*PushReply) ProtoMessage()    {}
-func (*PushReply) Descriptor() ([]byte, []int) {
+func (m *PutReply) Reset()         { *m = PutReply{} }
+func (m *PutReply) String() string { return proto.CompactTextString(m) }
+func (*PutReply) ProtoMessage()    {}
+func (*PutReply) Descriptor() ([]byte, []int) {
 	return fileDescriptor_77a6da22d6a3feb1, []int{1}
 }
 
-func (m *PushReply) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_PushReply.Unmarshal(m, b)
+func (m *PutReply) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_PutReply.Unmarshal(m, b)
 }
-func (m *PushReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_PushReply.Marshal(b, m, deterministic)
+func (m *PutReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_PutReply.Marshal(b, m, deterministic)
 }
-func (m *PushReply) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_PushReply.Merge(m, src)
+func (m *PutReply) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PutReply.Merge(m, src)
 }
-func (m *PushReply) XXX_Size() int {
-	return xxx_messageInfo_PushReply.Size(m)
+func (m *PutReply) XXX_Size() int {
+	return xxx_messageInfo_PutReply.Size(m)
 }
-func (m *PushReply) XXX_DiscardUnknown() {
-	xxx_messageInfo_PushReply.DiscardUnknown(m)
+func (m *PutReply) XXX_DiscardUnknown() {
+	xxx_messageInfo_PutReply.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_PushReply proto.InternalMessageInfo
+var xxx_messageInfo_PutReply proto.InternalMessageInfo
 
-func (m *PushReply) GetMessageId() int64 {
+func (m *PutReply) GetMessageId() int64 {
 	if m != nil {
 		return m.MessageId
 	}
 	return 0
 }
 
-type PopRequest struct {
-	Topic                string   `protobuf:"bytes,1,opt,name=topic,proto3" json:"topic,omitempty"`
-	Queue                string   `protobuf:"bytes,2,opt,name=queue,proto3" json:"queue,omitempty"`
-	ReqStatus            int32    `protobuf:"varint,3,opt,name=reqStatus,proto3" json:"reqStatus,omitempty"`
-	ReqNum               int32    `protobuf:"varint,4,opt,name=reqNum,proto3" json:"reqNum,omitempty"`
+type PullRequest struct {
+	Topic                []byte   `protobuf:"bytes,1,opt,name=topic,proto3" json:"topic,omitempty"`
+	Group                []byte   `protobuf:"bytes,2,opt,name=group,proto3" json:"group,omitempty"`
+	Tag                  []byte   `protobuf:"bytes,3,opt,name=tag,proto3" json:"tag,omitempty"`
+	QueueId              int32    `protobuf:"varint,4,opt,name=queueId,proto3" json:"queueId,omitempty"`
+	PullNum              int32    `protobuf:"varint,5,opt,name=pullNum,proto3" json:"pullNum,omitempty"`
+	ReadOffset           int64    `protobuf:"varint,6,opt,name=readOffset,proto3" json:"readOffset,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *PopRequest) Reset()         { *m = PopRequest{} }
-func (m *PopRequest) String() string { return proto.CompactTextString(m) }
-func (*PopRequest) ProtoMessage()    {}
-func (*PopRequest) Descriptor() ([]byte, []int) {
+func (m *PullRequest) Reset()         { *m = PullRequest{} }
+func (m *PullRequest) String() string { return proto.CompactTextString(m) }
+func (*PullRequest) ProtoMessage()    {}
+func (*PullRequest) Descriptor() ([]byte, []int) {
 	return fileDescriptor_77a6da22d6a3feb1, []int{2}
 }
 
-func (m *PopRequest) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_PopRequest.Unmarshal(m, b)
+func (m *PullRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_PullRequest.Unmarshal(m, b)
 }
-func (m *PopRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_PopRequest.Marshal(b, m, deterministic)
+func (m *PullRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_PullRequest.Marshal(b, m, deterministic)
 }
-func (m *PopRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_PopRequest.Merge(m, src)
+func (m *PullRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PullRequest.Merge(m, src)
 }
-func (m *PopRequest) XXX_Size() int {
-	return xxx_messageInfo_PopRequest.Size(m)
+func (m *PullRequest) XXX_Size() int {
+	return xxx_messageInfo_PullRequest.Size(m)
 }
-func (m *PopRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_PopRequest.DiscardUnknown(m)
+func (m *PullRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_PullRequest.DiscardUnknown(m)
 }
 
-var xxx_messageInfo_PopRequest proto.InternalMessageInfo
+var xxx_messageInfo_PullRequest proto.InternalMessageInfo
 
-func (m *PopRequest) GetTopic() string {
+func (m *PullRequest) GetTopic() []byte {
 	if m != nil {
 		return m.Topic
 	}
-	return ""
+	return nil
 }
 
-func (m *PopRequest) GetQueue() string {
+func (m *PullRequest) GetGroup() []byte {
 	if m != nil {
-		return m.Queue
+		return m.Group
 	}
-	return ""
+	return nil
 }
 
-func (m *PopRequest) GetReqStatus() int32 {
+func (m *PullRequest) GetTag() []byte {
 	if m != nil {
-		return m.ReqStatus
+		return m.Tag
+	}
+	return nil
+}
+
+func (m *PullRequest) GetQueueId() int32 {
+	if m != nil {
+		return m.QueueId
 	}
 	return 0
 }
 
-func (m *PopRequest) GetReqNum() int32 {
+func (m *PullRequest) GetPullNum() int32 {
 	if m != nil {
-		return m.ReqNum
+		return m.PullNum
 	}
 	return 0
 }
 
-type PopReply struct {
-	Message              string   `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
-	MessageId            int64    `protobuf:"varint,2,opt,name=messageId,proto3" json:"messageId,omitempty"`
+func (m *PullRequest) GetReadOffset() int64 {
+	if m != nil {
+		return m.ReadOffset
+	}
+	return 0
+}
+
+type PullReply struct {
+	MessageId            int64    `protobuf:"varint,1,opt,name=messageId,proto3" json:"messageId,omitempty"`
+	Message              []byte   `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
 	XXX_sizecache        int32    `json:"-"`
 }
 
-func (m *PopReply) Reset()         { *m = PopReply{} }
-func (m *PopReply) String() string { return proto.CompactTextString(m) }
-func (*PopReply) ProtoMessage()    {}
-func (*PopReply) Descriptor() ([]byte, []int) {
+func (m *PullReply) Reset()         { *m = PullReply{} }
+func (m *PullReply) String() string { return proto.CompactTextString(m) }
+func (*PullReply) ProtoMessage()    {}
+func (*PullReply) Descriptor() ([]byte, []int) {
 	return fileDescriptor_77a6da22d6a3feb1, []int{3}
 }
 
-func (m *PopReply) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_PopReply.Unmarshal(m, b)
+func (m *PullReply) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_PullReply.Unmarshal(m, b)
 }
-func (m *PopReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_PopReply.Marshal(b, m, deterministic)
+func (m *PullReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_PullReply.Marshal(b, m, deterministic)
 }
-func (m *PopReply) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_PopReply.Merge(m, src)
+func (m *PullReply) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_PullReply.Merge(m, src)
 }
-func (m *PopReply) XXX_Size() int {
-	return xxx_messageInfo_PopReply.Size(m)
+func (m *PullReply) XXX_Size() int {
+	return xxx_messageInfo_PullReply.Size(m)
 }
-func (m *PopReply) XXX_DiscardUnknown() {
-	xxx_messageInfo_PopReply.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_PopReply proto.InternalMessageInfo
-
-func (m *PopReply) GetMessage() string {
-	if m != nil {
-		return m.Message
-	}
-	return ""
+func (m *PullReply) XXX_DiscardUnknown() {
+	xxx_messageInfo_PullReply.DiscardUnknown(m)
 }
 
-func (m *PopReply) GetMessageId() int64 {
+var xxx_messageInfo_PullReply proto.InternalMessageInfo
+
+func (m *PullReply) GetMessageId() int64 {
 	if m != nil {
 		return m.MessageId
 	}
 	return 0
 }
 
-type AckRequest struct {
-	MessageId            int64    `protobuf:"varint,1,opt,name=messageId,proto3" json:"messageId,omitempty"`
-	Topic                string   `protobuf:"bytes,2,opt,name=topic,proto3" json:"topic,omitempty"`
-	Queue                string   `protobuf:"bytes,3,opt,name=queue,proto3" json:"queue,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *AckRequest) Reset()         { *m = AckRequest{} }
-func (m *AckRequest) String() string { return proto.CompactTextString(m) }
-func (*AckRequest) ProtoMessage()    {}
-func (*AckRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{4}
-}
-
-func (m *AckRequest) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_AckRequest.Unmarshal(m, b)
-}
-func (m *AckRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_AckRequest.Marshal(b, m, deterministic)
-}
-func (m *AckRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_AckRequest.Merge(m, src)
-}
-func (m *AckRequest) XXX_Size() int {
-	return xxx_messageInfo_AckRequest.Size(m)
-}
-func (m *AckRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_AckRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_AckRequest proto.InternalMessageInfo
-
-func (m *AckRequest) GetMessageId() int64 {
-	if m != nil {
-		return m.MessageId
-	}
-	return 0
-}
-
-func (m *AckRequest) GetTopic() string {
-	if m != nil {
-		return m.Topic
-	}
-	return ""
-}
-
-func (m *AckRequest) GetQueue() string {
-	if m != nil {
-		return m.Queue
-	}
-	return ""
-}
-
-type AckReply struct {
-	Result               string   `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *AckReply) Reset()         { *m = AckReply{} }
-func (m *AckReply) String() string { return proto.CompactTextString(m) }
-func (*AckReply) ProtoMessage()    {}
-func (*AckReply) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{5}
-}
-
-func (m *AckReply) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_AckReply.Unmarshal(m, b)
-}
-func (m *AckReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_AckReply.Marshal(b, m, deterministic)
-}
-func (m *AckReply) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_AckReply.Merge(m, src)
-}
-func (m *AckReply) XXX_Size() int {
-	return xxx_messageInfo_AckReply.Size(m)
-}
-func (m *AckReply) XXX_DiscardUnknown() {
-	xxx_messageInfo_AckReply.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_AckReply proto.InternalMessageInfo
-
-func (m *AckReply) GetResult() string {
-	if m != nil {
-		return m.Result
-	}
-	return ""
-}
-
-type DeclareRequest struct {
-	Topic                string   `protobuf:"bytes,1,opt,name=topic,proto3" json:"topic,omitempty"`
-	Queue                string   `protobuf:"bytes,2,opt,name=queue,proto3" json:"queue,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *DeclareRequest) Reset()         { *m = DeclareRequest{} }
-func (m *DeclareRequest) String() string { return proto.CompactTextString(m) }
-func (*DeclareRequest) ProtoMessage()    {}
-func (*DeclareRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{6}
-}
-
-func (m *DeclareRequest) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_DeclareRequest.Unmarshal(m, b)
-}
-func (m *DeclareRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_DeclareRequest.Marshal(b, m, deterministic)
-}
-func (m *DeclareRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_DeclareRequest.Merge(m, src)
-}
-func (m *DeclareRequest) XXX_Size() int {
-	return xxx_messageInfo_DeclareRequest.Size(m)
-}
-func (m *DeclareRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_DeclareRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_DeclareRequest proto.InternalMessageInfo
-
-func (m *DeclareRequest) GetTopic() string {
-	if m != nil {
-		return m.Topic
-	}
-	return ""
-}
-
-func (m *DeclareRequest) GetQueue() string {
-	if m != nil {
-		return m.Queue
-	}
-	return ""
-}
-
-type DeclareReply struct {
-	Result               string   `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *DeclareReply) Reset()         { *m = DeclareReply{} }
-func (m *DeclareReply) String() string { return proto.CompactTextString(m) }
-func (*DeclareReply) ProtoMessage()    {}
-func (*DeclareReply) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{7}
-}
-
-func (m *DeclareReply) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_DeclareReply.Unmarshal(m, b)
-}
-func (m *DeclareReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_DeclareReply.Marshal(b, m, deterministic)
-}
-func (m *DeclareReply) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_DeclareReply.Merge(m, src)
-}
-func (m *DeclareReply) XXX_Size() int {
-	return xxx_messageInfo_DeclareReply.Size(m)
-}
-func (m *DeclareReply) XXX_DiscardUnknown() {
-	xxx_messageInfo_DeclareReply.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_DeclareReply proto.InternalMessageInfo
-
-func (m *DeclareReply) GetResult() string {
-	if m != nil {
-		return m.Result
-	}
-	return ""
-}
-
-type PublishRequest struct {
-	Channel              string   `protobuf:"bytes,1,opt,name=channel,proto3" json:"channel,omitempty"`
-	Message              string   `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *PublishRequest) Reset()         { *m = PublishRequest{} }
-func (m *PublishRequest) String() string { return proto.CompactTextString(m) }
-func (*PublishRequest) ProtoMessage()    {}
-func (*PublishRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{8}
-}
-
-func (m *PublishRequest) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_PublishRequest.Unmarshal(m, b)
-}
-func (m *PublishRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_PublishRequest.Marshal(b, m, deterministic)
-}
-func (m *PublishRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_PublishRequest.Merge(m, src)
-}
-func (m *PublishRequest) XXX_Size() int {
-	return xxx_messageInfo_PublishRequest.Size(m)
-}
-func (m *PublishRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_PublishRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_PublishRequest proto.InternalMessageInfo
-
-func (m *PublishRequest) GetChannel() string {
-	if m != nil {
-		return m.Channel
-	}
-	return ""
-}
-
-func (m *PublishRequest) GetMessage() string {
+func (m *PullReply) GetMessage() []byte {
 	if m != nil {
 		return m.Message
 	}
-	return ""
-}
-
-type PublishReply struct {
-	Result               string   `protobuf:"bytes,1,opt,name=result,proto3" json:"result,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *PublishReply) Reset()         { *m = PublishReply{} }
-func (m *PublishReply) String() string { return proto.CompactTextString(m) }
-func (*PublishReply) ProtoMessage()    {}
-func (*PublishReply) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{9}
-}
-
-func (m *PublishReply) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_PublishReply.Unmarshal(m, b)
-}
-func (m *PublishReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_PublishReply.Marshal(b, m, deterministic)
-}
-func (m *PublishReply) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_PublishReply.Merge(m, src)
-}
-func (m *PublishReply) XXX_Size() int {
-	return xxx_messageInfo_PublishReply.Size(m)
-}
-func (m *PublishReply) XXX_DiscardUnknown() {
-	xxx_messageInfo_PublishReply.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_PublishReply proto.InternalMessageInfo
-
-func (m *PublishReply) GetResult() string {
-	if m != nil {
-		return m.Result
-	}
-	return ""
-}
-
-type SubscribeRequest struct {
-	Channel              string   `protobuf:"bytes,1,opt,name=channel,proto3" json:"channel,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *SubscribeRequest) Reset()         { *m = SubscribeRequest{} }
-func (m *SubscribeRequest) String() string { return proto.CompactTextString(m) }
-func (*SubscribeRequest) ProtoMessage()    {}
-func (*SubscribeRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{10}
-}
-
-func (m *SubscribeRequest) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_SubscribeRequest.Unmarshal(m, b)
-}
-func (m *SubscribeRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_SubscribeRequest.Marshal(b, m, deterministic)
-}
-func (m *SubscribeRequest) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_SubscribeRequest.Merge(m, src)
-}
-func (m *SubscribeRequest) XXX_Size() int {
-	return xxx_messageInfo_SubscribeRequest.Size(m)
-}
-func (m *SubscribeRequest) XXX_DiscardUnknown() {
-	xxx_messageInfo_SubscribeRequest.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_SubscribeRequest proto.InternalMessageInfo
-
-func (m *SubscribeRequest) GetChannel() string {
-	if m != nil {
-		return m.Channel
-	}
-	return ""
-}
-
-type SubscribeReply struct {
-	Message              string   `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *SubscribeReply) Reset()         { *m = SubscribeReply{} }
-func (m *SubscribeReply) String() string { return proto.CompactTextString(m) }
-func (*SubscribeReply) ProtoMessage()    {}
-func (*SubscribeReply) Descriptor() ([]byte, []int) {
-	return fileDescriptor_77a6da22d6a3feb1, []int{11}
-}
-
-func (m *SubscribeReply) XXX_Unmarshal(b []byte) error {
-	return xxx_messageInfo_SubscribeReply.Unmarshal(m, b)
-}
-func (m *SubscribeReply) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return xxx_messageInfo_SubscribeReply.Marshal(b, m, deterministic)
-}
-func (m *SubscribeReply) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_SubscribeReply.Merge(m, src)
-}
-func (m *SubscribeReply) XXX_Size() int {
-	return xxx_messageInfo_SubscribeReply.Size(m)
-}
-func (m *SubscribeReply) XXX_DiscardUnknown() {
-	xxx_messageInfo_SubscribeReply.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_SubscribeReply proto.InternalMessageInfo
-
-func (m *SubscribeReply) GetMessage() string {
-	if m != nil {
-		return m.Message
-	}
-	return ""
+	return nil
 }
 
 func init() {
-	proto.RegisterType((*PushRequest)(nil), "proto.PushRequest")
-	proto.RegisterType((*PushReply)(nil), "proto.PushReply")
-	proto.RegisterType((*PopRequest)(nil), "proto.PopRequest")
-	proto.RegisterType((*PopReply)(nil), "proto.PopReply")
-	proto.RegisterType((*AckRequest)(nil), "proto.AckRequest")
-	proto.RegisterType((*AckReply)(nil), "proto.AckReply")
-	proto.RegisterType((*DeclareRequest)(nil), "proto.DeclareRequest")
-	proto.RegisterType((*DeclareReply)(nil), "proto.DeclareReply")
-	proto.RegisterType((*PublishRequest)(nil), "proto.PublishRequest")
-	proto.RegisterType((*PublishReply)(nil), "proto.PublishReply")
-	proto.RegisterType((*SubscribeRequest)(nil), "proto.SubscribeRequest")
-	proto.RegisterType((*SubscribeReply)(nil), "proto.SubscribeReply")
+	proto.RegisterType((*PutRequest)(nil), "proto.PutRequest")
+	proto.RegisterType((*PutReply)(nil), "proto.PutReply")
+	proto.RegisterType((*PullRequest)(nil), "proto.PullRequest")
+	proto.RegisterType((*PullReply)(nil), "proto.PullReply")
 }
 
 func init() { proto.RegisterFile("rpc.proto", fileDescriptor_77a6da22d6a3feb1) }
 
 var fileDescriptor_77a6da22d6a3feb1 = []byte{
-	// 520 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x53, 0xc1, 0x8e, 0xd3, 0x3a,
-	0x14, 0x55, 0x9a, 0xa6, 0x6d, 0xee, 0x9b, 0xd7, 0x16, 0xcf, 0x14, 0xa2, 0x68, 0x16, 0x23, 0x2f,
-	0x50, 0xa9, 0xd0, 0x64, 0x04, 0xbb, 0x82, 0x90, 0x06, 0xcd, 0x06, 0x90, 0x50, 0x95, 0x41, 0xec,
-	0xd3, 0xd4, 0x6a, 0xa3, 0x66, 0x62, 0x37, 0x8e, 0x17, 0xdd, 0xf2, 0x0b, 0xfc, 0x06, 0x7f, 0xc3,
-	0x2f, 0xf0, 0x21, 0xc8, 0x8e, 0xe3, 0x24, 0x05, 0x82, 0xc4, 0xaa, 0xba, 0xc7, 0xf7, 0x9e, 0x73,
-	0x6e, 0xcf, 0x0d, 0xb8, 0x39, 0x8b, 0xaf, 0x59, 0x4e, 0x0b, 0x8a, 0x1c, 0xf5, 0xe3, 0x5f, 0x6e,
-	0x29, 0xdd, 0xa6, 0x24, 0x88, 0x58, 0x12, 0x44, 0x59, 0x46, 0x8b, 0xa8, 0x48, 0x68, 0xc6, 0xcb,
-	0x26, 0x4c, 0xe1, 0xbf, 0x95, 0xe0, 0xbb, 0x90, 0x1c, 0x04, 0xe1, 0x05, 0xba, 0x00, 0xa7, 0xa0,
-	0x2c, 0x89, 0x3d, 0xeb, 0xca, 0x9a, 0xbb, 0x61, 0x59, 0x20, 0x0f, 0x86, 0x0f, 0x84, 0xf3, 0x68,
-	0x4b, 0xbc, 0x9e, 0xc2, 0xab, 0x12, 0xf9, 0x30, 0xca, 0xa9, 0x28, 0xc8, 0x07, 0x72, 0xf4, 0x6c,
-	0xf5, 0x64, 0x6a, 0xc9, 0xb5, 0x21, 0x69, 0x74, 0xf4, 0xfa, 0x57, 0xd6, 0xdc, 0x09, 0xcb, 0x02,
-	0x3f, 0x03, 0xb7, 0x14, 0x64, 0xe9, 0x11, 0x5d, 0x82, 0xab, 0x99, 0xde, 0x6d, 0x94, 0xa4, 0x1d,
-	0xd6, 0x00, 0xce, 0x00, 0x56, 0x94, 0x75, 0x5b, 0xbb, 0x00, 0xe7, 0x20, 0x88, 0xa8, 0x8c, 0x95,
-	0x85, 0xe4, 0xcd, 0xc9, 0xe1, 0xbe, 0x88, 0x0a, 0xc1, 0x95, 0x2f, 0x27, 0xac, 0x01, 0xf4, 0x18,
-	0x06, 0x39, 0x39, 0x7c, 0x14, 0x0f, 0xda, 0x99, 0xae, 0xf0, 0x5b, 0x18, 0x29, 0x3d, 0xe9, 0xac,
-	0xb1, 0xb2, 0xd5, 0x5e, 0xb9, 0xe5, 0xb9, 0x77, 0xea, 0xf9, 0x33, 0xc0, 0x6d, 0xbc, 0xaf, 0x3c,
-	0x77, 0xee, 0x57, 0x6f, 0xd4, 0xfb, 0xed, 0x46, 0x76, 0x63, 0x23, 0x8c, 0x61, 0xa4, 0x78, 0xa5,
-	0x37, 0xe5, 0x9f, 0x8b, 0xb4, 0xd0, 0xd6, 0x74, 0x85, 0x5f, 0xc3, 0xf8, 0x8e, 0xc4, 0x69, 0x94,
-	0x93, 0x7f, 0xf8, 0xcf, 0xf0, 0x53, 0x38, 0x33, 0xd3, 0x5d, 0x2a, 0x77, 0x30, 0x5e, 0x89, 0x75,
-	0x9a, 0xd4, 0x47, 0xe3, 0xc1, 0x30, 0xde, 0x45, 0x59, 0x46, 0xd2, 0xea, 0xbf, 0xd2, 0xe5, 0x9f,
-	0x0f, 0x47, 0xaa, 0x19, 0x96, 0x2e, 0xb5, 0xe7, 0x30, 0xbd, 0x17, 0x6b, 0x1e, 0xe7, 0xc9, 0x9a,
-	0xfc, 0x55, 0x0f, 0x2f, 0x60, 0xdc, 0xe8, 0xee, 0xcc, 0xf1, 0xc5, 0x37, 0x1b, 0xec, 0x90, 0xc5,
-	0xe8, 0x0d, 0xf4, 0xe5, 0x41, 0x22, 0x54, 0x7e, 0x11, 0xd7, 0x8d, 0xcf, 0xc1, 0x9f, 0xb6, 0x30,
-	0x96, 0x1e, 0xf1, 0xf4, 0xcb, 0xf7, 0x1f, 0x5f, 0x7b, 0x80, 0x9d, 0x80, 0x09, 0xbe, 0x5b, 0x5a,
-	0x0b, 0xf4, 0x0a, 0xec, 0x15, 0x65, 0xe8, 0x51, 0xd5, 0x6a, 0x2e, 0xd6, 0x9f, 0x34, 0x21, 0x39,
-	0x7c, 0xa6, 0x86, 0x07, 0xa8, 0x1f, 0x30, 0xca, 0xe6, 0xd6, 0x8d, 0x85, 0x96, 0x60, 0xdf, 0xc6,
-	0x7b, 0x33, 0x5c, 0x9f, 0x8e, 0x19, 0xae, 0x52, 0xc7, 0x13, 0x35, 0xec, 0xe2, 0x7e, 0x10, 0xc5,
-	0x7b, 0x29, 0xfc, 0x1e, 0x86, 0x3a, 0x30, 0x34, 0xd3, 0xcd, 0xed, 0xf8, 0xfd, 0xf3, 0x53, 0x58,
-	0xf2, 0x9c, 0x2b, 0x9e, 0xff, 0xf1, 0x28, 0xd8, 0x94, 0xb0, 0xe6, 0xd2, 0x71, 0x18, 0xae, 0x76,
-	0xc8, 0x86, 0xab, 0x99, 0x5a, 0x83, 0x8b, 0x95, 0xb0, 0xe4, 0xfa, 0x04, 0xae, 0x09, 0x01, 0x3d,
-	0xd1, 0x63, 0xa7, 0x21, 0xfa, 0xb3, 0x5f, 0x1f, 0x24, 0xe3, 0x4c, 0x31, 0x4e, 0x30, 0x04, 0xbc,
-	0x7a, 0x58, 0x5a, 0x8b, 0x1b, 0x6b, 0x3d, 0x50, 0xed, 0x2f, 0x7f, 0x06, 0x00, 0x00, 0xff, 0xff,
-	0x3e, 0xa8, 0xbb, 0xc3, 0xe1, 0x04, 0x00, 0x00,
+	// 324 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x94, 0x91, 0xc1, 0x4e, 0xc2, 0x40,
+	0x10, 0x86, 0xb3, 0xb4, 0x05, 0x3b, 0x92, 0x80, 0x13, 0x0e, 0x1b, 0x42, 0x0c, 0xe9, 0xa9, 0xf1,
+	0x40, 0x8d, 0xde, 0x38, 0x78, 0xf1, 0xc4, 0x45, 0x49, 0xdf, 0x60, 0xa5, 0x4b, 0x43, 0xb2, 0xb0,
+	0x43, 0xbb, 0x7b, 0xe0, 0x62, 0xa2, 0xaf, 0xe0, 0x03, 0xf8, 0x50, 0xbe, 0x82, 0x0f, 0x62, 0xba,
+	0xa5, 0x80, 0x07, 0x35, 0x9e, 0x76, 0xff, 0x3f, 0xff, 0xcc, 0x7e, 0x3b, 0x03, 0x61, 0x41, 0x8b,
+	0x09, 0x15, 0xda, 0x68, 0x0c, 0xdc, 0x31, 0x1c, 0xe5, 0x5a, 0xe7, 0x4a, 0x26, 0x82, 0x56, 0x89,
+	0xd8, 0x6c, 0xb4, 0x11, 0x66, 0xa5, 0x37, 0x65, 0x1d, 0x8a, 0x9e, 0x01, 0xe6, 0xd6, 0xa4, 0x72,
+	0x6b, 0x65, 0x69, 0x70, 0x00, 0x81, 0xd1, 0xb4, 0x5a, 0x70, 0x36, 0x66, 0x71, 0x37, 0xad, 0x05,
+	0x72, 0xe8, 0xac, 0x65, 0x59, 0x8a, 0x5c, 0xf2, 0x96, 0xf3, 0x1b, 0x89, 0x7d, 0xf0, 0x8c, 0xc8,
+	0xb9, 0xe7, 0xdc, 0xea, 0x5a, 0x65, 0xb7, 0x56, 0x5a, 0x39, 0xcb, 0xb8, 0x3f, 0x66, 0x71, 0x90,
+	0x36, 0xb2, 0xea, 0x9d, 0x49, 0x25, 0x76, 0x3c, 0x70, 0x7e, 0x2d, 0xa2, 0x18, 0xce, 0xdc, 0xfb,
+	0xa4, 0x76, 0x38, 0x82, 0x70, 0xdf, 0x78, 0x96, 0x39, 0x02, 0x2f, 0x3d, 0x1a, 0xd1, 0x3b, 0x83,
+	0xf3, 0xb9, 0x55, 0xea, 0x77, 0xd6, 0x01, 0x04, 0x79, 0xa1, 0x2d, 0xed, 0x49, 0x6b, 0xf1, 0x2f,
+	0x4e, 0x0e, 0x1d, 0xb2, 0x4a, 0x3d, 0xd8, 0xf5, 0x9e, 0xb4, 0x91, 0x78, 0x09, 0x50, 0x48, 0x91,
+	0x3d, 0x2e, 0x97, 0xa5, 0x34, 0xbc, 0xed, 0x00, 0x4f, 0x9c, 0xe8, 0x1e, 0xc2, 0x1a, 0xf0, 0xcf,
+	0xcf, 0xfc, 0x3c, 0xd2, 0x9b, 0x17, 0x06, 0x5e, 0x4a, 0x0b, 0x9c, 0x82, 0x37, 0xb7, 0x06, 0x2f,
+	0xea, 0x3d, 0x4d, 0x8e, 0x4b, 0x1a, 0xf6, 0x4e, 0x2d, 0x52, 0xbb, 0xa8, 0xf7, 0xfa, 0xf1, 0xf9,
+	0xd6, 0x0a, 0x23, 0x3f, 0x21, 0x6b, 0xa6, 0xec, 0x0a, 0xef, 0xc0, 0xaf, 0x40, 0x10, 0x0f, 0xc9,
+	0xc3, 0xd8, 0x86, 0xfd, 0x6f, 0x5e, 0x55, 0xde, 0x75, 0xe5, 0x6d, 0xf4, 0x13, 0xd2, 0x14, 0xb3,
+	0x6b, 0xf6, 0xd4, 0x76, 0x91, 0xdb, 0xaf, 0x00, 0x00, 0x00, 0xff, 0xff, 0xa1, 0x7d, 0xad, 0x21,
+	0x4d, 0x02, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -647,12 +307,8 @@ const _ = grpc.SupportPackageIsVersion4
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type RpcClient interface {
-	Push(ctx context.Context, in *PushRequest, opts ...grpc.CallOption) (*PushReply, error)
-	Pop(ctx context.Context, opts ...grpc.CallOption) (Rpc_PopClient, error)
-	Ack(ctx context.Context, in *AckRequest, opts ...grpc.CallOption) (*AckReply, error)
-	Declare(ctx context.Context, in *DeclareRequest, opts ...grpc.CallOption) (*DeclareReply, error)
-	Publish(ctx context.Context, in *PublishRequest, opts ...grpc.CallOption) (*PublishReply, error)
-	Subscribe(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (Rpc_SubscribeClient, error)
+	Put(ctx context.Context, in *PutRequest, opts ...grpc.CallOption) (*PutReply, error)
+	Pull(ctx context.Context, opts ...grpc.CallOption) (Rpc_PullClient, error)
 }
 
 type rpcClient struct {
@@ -663,99 +319,40 @@ func NewRpcClient(cc *grpc.ClientConn) RpcClient {
 	return &rpcClient{cc}
 }
 
-func (c *rpcClient) Push(ctx context.Context, in *PushRequest, opts ...grpc.CallOption) (*PushReply, error) {
-	out := new(PushReply)
-	err := c.cc.Invoke(ctx, "/proto.Rpc/Push", in, out, opts...)
+func (c *rpcClient) Put(ctx context.Context, in *PutRequest, opts ...grpc.CallOption) (*PutReply, error) {
+	out := new(PutReply)
+	err := c.cc.Invoke(ctx, "/proto.Rpc/Put", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *rpcClient) Pop(ctx context.Context, opts ...grpc.CallOption) (Rpc_PopClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_Rpc_serviceDesc.Streams[0], "/proto.Rpc/Pop", opts...)
+func (c *rpcClient) Pull(ctx context.Context, opts ...grpc.CallOption) (Rpc_PullClient, error) {
+	stream, err := c.cc.NewStream(ctx, &_Rpc_serviceDesc.Streams[0], "/proto.Rpc/Pull", opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &rpcPopClient{stream}
+	x := &rpcPullClient{stream}
 	return x, nil
 }
 
-type Rpc_PopClient interface {
-	Send(*PopRequest) error
-	Recv() (*PopReply, error)
+type Rpc_PullClient interface {
+	Send(*PullRequest) error
+	Recv() (*PullReply, error)
 	grpc.ClientStream
 }
 
-type rpcPopClient struct {
+type rpcPullClient struct {
 	grpc.ClientStream
 }
 
-func (x *rpcPopClient) Send(m *PopRequest) error {
+func (x *rpcPullClient) Send(m *PullRequest) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *rpcPopClient) Recv() (*PopReply, error) {
-	m := new(PopReply)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func (c *rpcClient) Ack(ctx context.Context, in *AckRequest, opts ...grpc.CallOption) (*AckReply, error) {
-	out := new(AckReply)
-	err := c.cc.Invoke(ctx, "/proto.Rpc/Ack", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *rpcClient) Declare(ctx context.Context, in *DeclareRequest, opts ...grpc.CallOption) (*DeclareReply, error) {
-	out := new(DeclareReply)
-	err := c.cc.Invoke(ctx, "/proto.Rpc/Declare", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *rpcClient) Publish(ctx context.Context, in *PublishRequest, opts ...grpc.CallOption) (*PublishReply, error) {
-	out := new(PublishReply)
-	err := c.cc.Invoke(ctx, "/proto.Rpc/Publish", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *rpcClient) Subscribe(ctx context.Context, in *SubscribeRequest, opts ...grpc.CallOption) (Rpc_SubscribeClient, error) {
-	stream, err := c.cc.NewStream(ctx, &_Rpc_serviceDesc.Streams[1], "/proto.Rpc/Subscribe", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &rpcSubscribeClient{stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
-}
-
-type Rpc_SubscribeClient interface {
-	Recv() (*SubscribeReply, error)
-	grpc.ClientStream
-}
-
-type rpcSubscribeClient struct {
-	grpc.ClientStream
-}
-
-func (x *rpcSubscribeClient) Recv() (*SubscribeReply, error) {
-	m := new(SubscribeReply)
+func (x *rpcPullClient) Recv() (*PullReply, error) {
+	m := new(PullReply)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -764,158 +361,67 @@ func (x *rpcSubscribeClient) Recv() (*SubscribeReply, error) {
 
 // RpcServer is the server API for Rpc service.
 type RpcServer interface {
-	Push(context.Context, *PushRequest) (*PushReply, error)
-	Pop(Rpc_PopServer) error
-	Ack(context.Context, *AckRequest) (*AckReply, error)
-	Declare(context.Context, *DeclareRequest) (*DeclareReply, error)
-	Publish(context.Context, *PublishRequest) (*PublishReply, error)
-	Subscribe(*SubscribeRequest, Rpc_SubscribeServer) error
+	Put(context.Context, *PutRequest) (*PutReply, error)
+	Pull(Rpc_PullServer) error
 }
 
 // UnimplementedRpcServer can be embedded to have forward compatible implementations.
 type UnimplementedRpcServer struct {
 }
 
-func (*UnimplementedRpcServer) Push(ctx context.Context, req *PushRequest) (*PushReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Push not implemented")
+func (*UnimplementedRpcServer) Put(ctx context.Context, req *PutRequest) (*PutReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Put not implemented")
 }
-func (*UnimplementedRpcServer) Pop(srv Rpc_PopServer) error {
-	return status.Errorf(codes.Unimplemented, "method Pop not implemented")
-}
-func (*UnimplementedRpcServer) Ack(ctx context.Context, req *AckRequest) (*AckReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Ack not implemented")
-}
-func (*UnimplementedRpcServer) Declare(ctx context.Context, req *DeclareRequest) (*DeclareReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Declare not implemented")
-}
-func (*UnimplementedRpcServer) Publish(ctx context.Context, req *PublishRequest) (*PublishReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Publish not implemented")
-}
-func (*UnimplementedRpcServer) Subscribe(req *SubscribeRequest, srv Rpc_SubscribeServer) error {
-	return status.Errorf(codes.Unimplemented, "method Subscribe not implemented")
+func (*UnimplementedRpcServer) Pull(srv Rpc_PullServer) error {
+	return status.Errorf(codes.Unimplemented, "method Pull not implemented")
 }
 
 func RegisterRpcServer(s *grpc.Server, srv RpcServer) {
 	s.RegisterService(&_Rpc_serviceDesc, srv)
 }
 
-func _Rpc_Push_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PushRequest)
+func _Rpc_Put_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PutRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(RpcServer).Push(ctx, in)
+		return srv.(RpcServer).Put(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/proto.Rpc/Push",
+		FullMethod: "/proto.Rpc/Put",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RpcServer).Push(ctx, req.(*PushRequest))
+		return srv.(RpcServer).Put(ctx, req.(*PutRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Rpc_Pop_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(RpcServer).Pop(&rpcPopServer{stream})
+func _Rpc_Pull_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(RpcServer).Pull(&rpcPullServer{stream})
 }
 
-type Rpc_PopServer interface {
-	Send(*PopReply) error
-	Recv() (*PopRequest, error)
+type Rpc_PullServer interface {
+	Send(*PullReply) error
+	Recv() (*PullRequest, error)
 	grpc.ServerStream
 }
 
-type rpcPopServer struct {
+type rpcPullServer struct {
 	grpc.ServerStream
 }
 
-func (x *rpcPopServer) Send(m *PopReply) error {
+func (x *rpcPullServer) Send(m *PullReply) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *rpcPopServer) Recv() (*PopRequest, error) {
-	m := new(PopRequest)
+func (x *rpcPullServer) Recv() (*PullRequest, error) {
+	m := new(PullRequest)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
 	return m, nil
-}
-
-func _Rpc_Ack_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(AckRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RpcServer).Ack(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/proto.Rpc/Ack",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RpcServer).Ack(ctx, req.(*AckRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Rpc_Declare_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeclareRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RpcServer).Declare(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/proto.Rpc/Declare",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RpcServer).Declare(ctx, req.(*DeclareRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Rpc_Publish_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PublishRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RpcServer).Publish(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/proto.Rpc/Publish",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RpcServer).Publish(ctx, req.(*PublishRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Rpc_Subscribe_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(SubscribeRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(RpcServer).Subscribe(m, &rpcSubscribeServer{stream})
-}
-
-type Rpc_SubscribeServer interface {
-	Send(*SubscribeReply) error
-	grpc.ServerStream
-}
-
-type rpcSubscribeServer struct {
-	grpc.ServerStream
-}
-
-func (x *rpcSubscribeServer) Send(m *SubscribeReply) error {
-	return x.ServerStream.SendMsg(m)
 }
 
 var _Rpc_serviceDesc = grpc.ServiceDesc{
@@ -923,33 +429,16 @@ var _Rpc_serviceDesc = grpc.ServiceDesc{
 	HandlerType: (*RpcServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "Push",
-			Handler:    _Rpc_Push_Handler,
-		},
-		{
-			MethodName: "Ack",
-			Handler:    _Rpc_Ack_Handler,
-		},
-		{
-			MethodName: "Declare",
-			Handler:    _Rpc_Declare_Handler,
-		},
-		{
-			MethodName: "Publish",
-			Handler:    _Rpc_Publish_Handler,
+			MethodName: "Put",
+			Handler:    _Rpc_Put_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "Pop",
-			Handler:       _Rpc_Pop_Handler,
+			StreamName:    "Pull",
+			Handler:       _Rpc_Pull_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
-		},
-		{
-			StreamName:    "Subscribe",
-			Handler:       _Rpc_Subscribe_Handler,
-			ServerStreams: true,
 		},
 	},
 	Metadata: "rpc.proto",

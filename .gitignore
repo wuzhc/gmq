@@ -7,3 +7,6 @@
 
 /cmd/gnode/data/
 /cmd/gregister/data/
+test.go
+internal/gnode/index.go
+cmd/gnode/consume_offset_store.json

@@ -69,7 +69,7 @@ func (gn *Gnode) Run() {
 	}
 
 	gn.ctx = ctx
-	gn.wg.Wrap(NewDispatcher(ctx).Run)
+	gn.wg.Wrap(NewBroker(ctx).Start)
 
 	// whether to enable cluster, if true,
 	// etcd must be started and the node will registers information to etcd
