@@ -445,7 +445,7 @@ func (t *Topic) pop(bindKey string) (*Msg, error) {
 		return nil, fmt.Errorf("bindKey:%s can't match queue", bindKey)
 	}
 
-	data, err := queue.read(t.isAutoAck)
+	data := <-queue.readChan
 	if err != nil {
 		return nil, err
 	}
